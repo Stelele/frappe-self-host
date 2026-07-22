@@ -11,6 +11,25 @@ if (-not (Test-Path $EnvFile)) {
   exit 1
 }
 
+# Allow shorthand DOMAIN=example.com if user doesn't want to write SITES_RULE syntax
+$envVars = @{}
+Get-Content $EnvFile | ForEach-Object {
+  if ($_ -match '^([^#=]+)=(.*)$') {
+    $envVars[$matches[1].Trim()] = $matches[2].Trim()
+  }
+}
+
+if ($envVars.ContainsKey('SITES_RULE')) {
+  $env:SITES_RULE = $envVars['SITES_RULE']
+} elseif ($envVars.ContainsKey('DOMAIN')) {
+  $env:SITES_RULE = "Host(`$($envVars['DOMAIN'])`)"
+}
+
+if (-not $env:SITES_RULE) {
+  Write-Error "Set SITES_RULE or DOMAIN in .env"
+  exit 1
+}
+
 Write-Host "Generating compose configuration..."
 Set-Location $ComposeDir
 
@@ -22,7 +41,9 @@ docker compose --env-file $EnvFile `
   -f overrides/compose.https.yaml `
   config > "$RepoDir/compose.custom.yaml"
 
-Write-Host "Starting all services..."
+Write-Host "Starting all services (restart: unless-stopped is the default)..."
 docker compose --env-file $EnvFile -f "$RepoDir/compose.custom.yaml" up -d
 
-Write-Host "Deploy complete. Run scripts/create-site.ps1 to create your first site."
+Write-Host "Deploy complete."
+Write-Host "Next: scripts\create-site.ps1 <your-domain.com>
+Or:  scripts\verify.ps1"

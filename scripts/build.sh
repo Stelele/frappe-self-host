@@ -6,14 +6,14 @@ REPO_DIR="$(dirname "$SCRIPT_DIR")"
 
 cd "$REPO_DIR/frappe_docker"
 
-echo "Building custom Frappe v16 image with apps from ../apps.json..."
+echo "Building BasaPOS Frappe v16 image with apps from ../apps.json..."
 
 docker build \
   --build-arg=FRAPPE_PATH=https://github.com/frappe/frappe \
   --build-arg=FRAPPE_BRANCH=version-16 \
   --build-arg=CACHE_BUST="$(date +%s)" \
   --secret=id=apps_json,src=../apps.json \
-  --tag=custom:16 \
+  --tag=BasaPOS:16 \
   --file=images/layered/Containerfile .
 
-echo "Build complete: custom:16"
+echo "Build complete: BasaPOS:16"

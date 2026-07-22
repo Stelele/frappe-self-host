@@ -29,14 +29,14 @@ jobs:
             CACHE_BUST=${{ github.sha }}
           secrets: |
             apps_json=${{ github.workspace }}/apps.json
-          tags: custom:16
-          outputs: type=docker,dest=/tmp/custom-image.tar
+          tags: BasaPOS:16
+          outputs: type=docker,dest=/tmp/BasaPOS-image.tar
 
       - name: Upload image artifact
         uses: actions/upload-artifact@v4
         with:
-          name: custom-image
-          path: /tmp/custom-image.tar
+          name: BasaPOS-image
+          path: /tmp/BasaPOS-image.tar
 
   deploy:
     needs: build
@@ -49,13 +49,13 @@ jobs:
       - name: Download image artifact
         uses: actions/download-artifact@v4
         with:
-          name: custom-image
+          name: BasaPOS-image
           path: /tmp
 
       - name: Load image on server
         run: |
-          docker load -i /tmp/custom-image.tar
-          docker tag custom:16 custom:16
+          docker load -i /tmp/BasaPOS-image.tar
+          docker tag BasaPOS:16 BasaPOS:16
 
       - name: Deploy stack
         run: |
