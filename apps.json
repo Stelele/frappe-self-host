@@ -1,0 +1,18 @@
+[
+  {
+    "url": "https://github.com/frappe/erpnext",
+    "branch": "version-16"
+  },
+  {
+    "url": "https://github.com/Stelele/awesome_dashboard_scripts",
+    "branch": "version-16"
+  },
+  {
+    "url": "https://github.com/Stelele/awesome-butchery",
+    "branch": "version-16"
+  },
+  {
+    "url": "https://github.com/Stelele/erpnext-point-of-sale-expenses",
+    "branch": "version-16"
+  }
+]

@@ -1,0 +1,16 @@
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+.env.local
+
+# Docker
+compose.custom.yaml
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
