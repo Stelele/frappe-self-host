@@ -14,7 +14,11 @@ source "$ENV_FILE"
 
 SITE_NAME="${1:-}"
 if [ -z "$SITE_NAME" ]; then
-  echo "Usage: $0 <site-name.example.com>"
+  echo "Usage: $0 <site-name>"
+  echo ""
+  echo "Examples:"
+  echo "  $0 basapos.local          # offline (.local /etc/hosts)"
+  echo "  $0 erpnext.example.com    # online (real domain)"
   exit 1
 fi
 
@@ -28,5 +32,6 @@ docker compose -f "$REPO_DIR/compose.custom.yaml" exec backend \
     --admin-password "${ADMIN_PASSWORD:-admin}" \
     "$SITE_NAME"
 
-echo "Install your custom apps:"
-echo "  docker compose -f compose.custom.yaml exec backend bench --site $SITE_NAME install-app my_custom_app"
+echo ""
+echo "Install additional apps if needed:"
+echo "  docker compose -f compose.custom.yaml exec backend bench --site $SITE_NAME install-app <app-name>"

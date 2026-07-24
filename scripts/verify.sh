@@ -31,12 +31,12 @@ fi
 
 # 2. Docker image exists
 echo "--- Image ---"
-if docker image inspect BasaPOS:16 &>/dev/null; then
-  pass "BasaPOS image BasaPOS:16 exists"
-  IMAGE_SIZE=$(docker image inspect BasaPOS:16 --format='{{.Size}}' | awk '{printf "%.1f MB", $1/1024/1024}')
+if docker image inspect basapos:16 &>/dev/null; then
+  pass "basapos image basapos:16 exists"
+  IMAGE_SIZE=$(docker image inspect basapos:16 --format='{{.Size}}' | awk '{printf "%.1f MB", $1/1024/1024}')
   echo "       Size: $IMAGE_SIZE"
 else
-  fail "BasaPOS image BasaPOS:16 not found (run scripts/build.sh)"
+  fail "basapos image basapos:16 not found (run scripts/build.sh)"
 fi
 
 # 3. Compose file exists
@@ -61,8 +61,8 @@ else
     fi
   done
 
-  # Check DB service (may be named mariadb-database)
-  DB_STATUS=$(docker compose -f "$COMPOSE_FILE" ps --status running --format '{{.Name}}' 2>/dev/null | grep -c mariadb || true)
+  # Check DB service
+  DB_STATUS=$(docker compose -f "$COMPOSE_FILE" ps --status running --format '{{.Name}}' 2>/dev/null | grep -cE 'db|mariadb' || true)
   if [ "$DB_STATUS" -ge 1 ]; then
     pass "Database (MariaDB) is running"
   else

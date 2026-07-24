@@ -33,10 +33,10 @@ try {
 # 2. Image
 Write-Host "--- Image ---"
 try {
-  $image = docker image inspect BasaPOS:16
-  Pass "BasaPOS image BasaPOS:16 exists"
+  $image = docker image inspect basapos:16
+  Pass "basapos image basapos:16 exists"
 } catch {
-  Fail "BasaPOS image BasaPOS:16 not found (run scripts/build.ps1)"
+  Fail "basapos image basapos:16 not found (run scripts/build.ps1)"
 }
 
 # 3. Compose file
@@ -52,7 +52,7 @@ Write-Host "--- Services ---"
 if (-not (Test-Path $ComposeFile)) {
   Fail "Cannot check services without compose.custom.yaml"
 } else {
-  $services = @("backend", "frontend", "websocket", "queue-short", "queue-long", "scheduler", "mariadb")
+  $services = @("backend", "frontend", "websocket", "queue-short", "queue-long", "scheduler", "db")
 
   $running = docker compose -f $ComposeFile ps --status running --format '{{.Name}}'
 

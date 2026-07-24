@@ -29,3 +29,7 @@ docker compose -f "$RepoDir/compose.custom.yaml" exec backend `
     --install-app erpnext `
     --admin-password $EnvVars['ADMIN_PASSWORD'] `
     $SiteName
+
+Write-Host ""
+Write-Host "Install additional apps if needed:"
+Write-Host "  docker compose -f compose.custom.yaml exec backend bench --site $SiteName install-app <app-name>"

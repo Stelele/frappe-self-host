@@ -4,7 +4,7 @@ param()
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 
 Write-Host ""
-Write-Host "=== Frappe Deploy: Full Pipeline ==="
+Write-Host "=== BasaPOS Frappe Deploy: Full Pipeline ==="
 Write-Host ""
 
 Write-Host ">>> Step 1: Prerequisites"
@@ -24,4 +24,4 @@ Write-Host ">>> Step 4: Verify"
 
 Write-Host ""
 Write-Host "=== All done! ==="
-Write-Host "Create a site: $ScriptDir\create-site.ps1 <your-domain.com>"
+Write-Host "Create a site: $ScriptDir\create-site.ps1 <your-domain>"

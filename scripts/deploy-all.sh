@@ -4,7 +4,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 echo ""
-echo "=== Frappe Deploy: Full Pipeline ==="
+echo "=== BasaPOS Frappe Deploy: Full Pipeline ==="
 echo ""
 
 echo ">>> Step 1: Prerequisites"
@@ -24,4 +24,4 @@ bash "$SCRIPT_DIR/verify.sh"
 
 echo ""
 echo "=== All done! ==="
-echo "Create a site: $SCRIPT_DIR/create-site.sh <your-domain.com>"
+echo "Create a site: $SCRIPT_DIR/create-site.sh <your-domain>"

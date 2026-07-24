@@ -155,10 +155,10 @@ docker build \
   --build-arg=FRAPPE_BRANCH=version-16 \
   --build-arg=CACHE_BUST="$(date +%s)" \
   --secret=id=apps_json,src=../apps.json \
-  --tag=BasaPOS:16 \
+  --tag=basapos:16 \
   --file=images/layered/Containerfile .
 
-echo "Build complete: BasaPOS:16"
+echo "Build complete: basapos:16"
 ```
 
 - [ ] **Step 2: Write build.ps1**
@@ -179,10 +179,10 @@ docker build `
   --build-arg=FRAPPE_BRANCH=version-16 `
   --build-arg=CACHE_BUST="$(Get-Date -Format o)" `
   --secret=id=apps_json,src=../apps.json `
-  --tag=BasaPOS:16 `
+  --tag=basapos:16 `
   --file=images/layered/Containerfile
 
-Write-Host "Build complete: BasaPOS:16"
+Write-Host "Build complete: basapos:16"
 ```
 
 - [ ] **Step 3: Make executable and commit**
@@ -549,7 +549,7 @@ jobs:
             CACHE_BUST=${{ github.sha }}
           secrets: |
             apps_json=${{ github.workspace }}/apps.json
-          tags: BasaPOS:16
+          tags: basapos:16
           outputs: type=docker,dest=/tmp/custom-image.tar
 
       - name: Upload image artifact
@@ -575,7 +575,7 @@ jobs:
       - name: Load image on server
         run: |
           docker load -i /tmp/custom-image.tar
-          docker tag BasaPOS:16 BasaPOS:16
+          docker tag basapos:16 basapos:16
 
       - name: Deploy stack
         run: |

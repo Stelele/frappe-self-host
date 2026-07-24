@@ -49,7 +49,7 @@ docker build \
   --build-arg=FRAPPE_PATH=https://github.com/frappe/frappe \
   --build-arg=FRAPPE_BRANCH=version-16 \
   --secret=id=apps_json,src=../apps.json \
-  --tag=BasaPOS:16 \
+  --tag=basapos:16 \
   --file=images/layered/Containerfile .
 ```
 

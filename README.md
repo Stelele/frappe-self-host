@@ -1,30 +1,51 @@
-# Frappe Docker Deployment
+# BasaPOS Frappe Docker Deployment
 
-One-command deploy template for Frappe/ERPNext v16 with custom apps on a single server.
+Offline-first deploy template for Frappe/ERPNext v16 with custom apps on a single server.
 
-## Quick Start
+## Quick Start (Offline)
 
 ```bash
 # 1. Edit your custom apps
 vim apps.json
 
-# 2. Set your domain (that's it — everything else has defaults)
+# 2. Configure (everything uses defaults, just set your local domain)
 cp .env.example .env
-echo "DOMAIN=erpnext.example.com" >> .env
-echo "LETSENCRYPT_EMAIL=you@example.com" >> .env
+# Default: OFFLINE=true, DOMAIN=basapos.local
 
-# 3. Full pipeline: setup → build → deploy → verify
+# 3. Add to your /etc/hosts (for LAN access)
+echo "192.168.1.100 basapos.local" >> /etc/hosts
+
+# 4. Full pipeline
 ./scripts/deploy-all.sh
 
-# 4. Create your first site
-./scripts/create-site.sh erpnext.example.com
+# 5. Create site
+./scripts/create-site.sh basapos.local
 ```
 
 Windows (PowerShell Admin):
 ```powershell
 .\scripts\deploy-all.ps1
-.\scripts\create-site.ps1 erpnext.example.com
+.\scripts\create-site.ps1 basapos.local
 ```
+
+## Mode: OFFLINE vs ONLINE
+
+| Mode | Config | SSL | Domain Example |
+|------|--------|-----|----------------|
+| Offline | `OFFLINE=true` | None (HTTP) | `basapos.local` via /etc/hosts |
+| Online | `OFFLINE=false` | Let's Encrypt | `erpnext.example.com` (real DNS) |
+
+Set `OFFLINE=true` in `.env` and the deploy script skips Let's Encrypt setup automatically.
+
+## How to Access Offline
+
+Add this line to every client machine's `/etc/hosts` (Linux/macOS) or `C:\Windows\System32\drivers\etc\hosts`:
+
+```
+192.168.1.100  basapos.local
+```
+
+Then visit `http://basapos.local` in a browser.
 
 ## Individual Steps
 
@@ -33,25 +54,17 @@ Windows (PowerShell Admin):
 | Install Docker | `./scripts/setup.sh` | `.\scripts\setup.ps1` |
 | Build image | `./scripts/build.sh` | `.\scripts\build.ps1` |
 | Deploy stack | `./scripts/deploy.sh` | `.\scripts\deploy.ps1` |
-| Create site | `./scripts/create-site.sh site.com` | `.\scripts\create-site.ps1 site.com` |
+| Create site | `./scripts/create-site.sh site` | `.\scripts\create-site.ps1 site` |
 | Verify health | `./scripts/verify.sh` | `.\scripts\verify.ps1` |
-
-## .env Options
-
-```
-DOMAIN=erpnext.example.com       # Shorthand (simpler)
-SITES_RULE=Host(`erpnext.example.com`)  # Full Traefik syntax (preferred for multi-domain)
-LETSENCRYPT_EMAIL=you@example.com # For auto-SSL
-DB_PASSWORD=<random>              # Auto-generated if empty
-```
+| Tear down | `./scripts/down.sh` | `.\scripts\down.ps1` |
 
 ## Containers Survive Reboots
 
-All services have `restart: unless-stopped` — containers restart automatically after machine reboot. No extra config needed.
+All services have `restart: unless-stopped` — they come back automatically after a machine restart.
 
 ## Traefik
 
-Traefik runs embedded in the stack — no separate setup, no dashboard to configure. It reads the `SITES_RULE` env var and auto-proxies traffic with Let's Encrypt SSL. That's it.
+Traefik runs embedded in the stack. In offline mode it routes HTTP traffic based on the hostname. No configuration needed.
 
 ## Backup
 
@@ -63,9 +76,9 @@ Traefik runs embedded in the stack — no separate setup, no dashboard to config
 ## Updating Apps
 
 ```bash
-vim apps.json                    # Change URLs/branches
-./scripts/build.sh               # Rebuild image
-./scripts/deploy.sh              # Redeploy (auto-migrates)
+vim apps.json
+./scripts/build.sh
+./scripts/deploy.sh
 ```
 
 ## Directory Layout
