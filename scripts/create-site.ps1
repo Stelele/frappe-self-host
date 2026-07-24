@@ -22,16 +22,26 @@ Get-Content $EnvFile | ForEach-Object {
   }
 }
 
-Write-Host "Creating site $SiteName..."
+# Extract all app names from apps.json (excluding frappe itself)
+$installApps = @("erpnext")
+$appsJson = "$RepoDir/apps.json"
+if (Test-Path $appsJson) {
+  $apps = Get-Content $appsJson | ConvertFrom-Json
+  $customApps = $apps | ForEach-Object {
+    $name = $_.url.Split('/')[-1]
+    if ($name -notin @('frappe', 'erpnext')) { $name }
+  }
+  $installApps += $customApps
+}
+
+$adminPwd = if ($EnvVars['ADMIN_PASSWORD']) { $EnvVars['ADMIN_PASSWORD'] } else { "admin" }
+
+Write-Host "Creating site $SiteName with apps: $($installApps -join ' ')..."
 
 docker compose -f "$RepoDir/compose.custom.yaml" exec backend `
   bench new-site `
     --mariadb-user-host-login-scope=% `
     --db-root-password $EnvVars['DB_PASSWORD'] `
-    --install-app erpnext `
-    --admin-password $EnvVars['ADMIN_PASSWORD'] `
+    --install-app $($installApps -join ' ') `
+    --admin-password $adminPwd `
     $SiteName
-
-Write-Host ""
-Write-Host "Install additional apps if needed:"
-Write-Host "  docker compose -f compose.custom.yaml exec backend bench --site $SiteName install-app <app-name>"
