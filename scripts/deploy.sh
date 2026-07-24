@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+docker context use default 2>/dev/null || true
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(dirname "$SCRIPT_DIR")"
@@ -46,7 +47,7 @@ cd "$COMPOSE_DIR"
 COMPOSE_FILES="-f compose.yaml -f overrides/compose.mariadb.yaml -f overrides/compose.redis.yaml -f overrides/compose.proxy.yaml"
 
 if [ "$OFFLINE" = true ]; then
-  echo "Mode: OFFLINE — HTTP only (no SSL)"
+  echo "Mode: OFFLINE — self-signed HTTPS"
   # Auto-add .local domain to /etc/hosts for offline access
   DOMAIN=$(grep '^DOMAIN=' "$ENV_FILE" | cut -d= -f2)
   if echo "$DOMAIN" | grep -q '\.local$' 2>/dev/null; then
@@ -55,6 +56,9 @@ if [ "$OFFLINE" = true ]; then
       sudo tee -a /etc/hosts > /dev/null <<< "127.0.0.1 $DOMAIN" 2>/dev/null && echo "  Added $DOMAIN to /etc/hosts" || echo "  Could not add to /etc/hosts — run: sudo tee -a /etc/hosts <<< \"127.0.0.1 $DOMAIN\""
     fi
   fi
+  # Generate self-signed SSL certs and enable HTTPS
+  bash "$SCRIPT_DIR/setup-ssl.sh"
+  COMPOSE_FILES="$COMPOSE_FILES -f ../overrides/compose.selfsigned.yaml"
 else
   echo "Mode: ONLINE — HTTPS with Let's Encrypt"
   COMPOSE_FILES="$COMPOSE_FILES -f overrides/compose.https.yaml"

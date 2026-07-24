@@ -4,6 +4,8 @@ param(
   [string]$Command = "docker"
 )
 
+docker context use default 2>$null
+
 Write-Host "=== Frappe Docker: Prerequisites Setup ==="
 Write-Host ""
 

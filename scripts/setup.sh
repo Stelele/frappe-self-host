@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+docker context use default 2>/dev/null || true
 
 echo "=== Frappe Docker: Prerequisites Setup ==="
 echo ""

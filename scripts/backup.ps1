@@ -1,6 +1,8 @@
 #!/usr/bin/env pwsh
 param()
 
+docker context use default 2>$null
+
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $RepoDir = Split-Path -Parent $ScriptDir
 $BackupDir = "$RepoDir/backups"

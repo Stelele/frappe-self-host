@@ -1,6 +1,8 @@
 #!/usr/bin/env pwsh
 param()
 
+docker context use default 2>$null
+
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $RepoDir = Split-Path -Parent $ScriptDir
 $EnvFile = "$RepoDir/.env"
@@ -51,7 +53,7 @@ $composeFiles = @(
 )
 
 if ($offline) {
-  Write-Host "Mode: OFFLINE — HTTP only (no SSL)"
+  Write-Host "Mode: OFFLINE — self-signed HTTPS"
   $domain = $envVars['DOMAIN']
   if ($domain -and $domain -match '\.local$') {
     $hostsPath = "$env:SystemRoot\System32\drivers\etc\hosts"
@@ -67,6 +69,8 @@ if ($offline) {
       }
     }
   }
+  & "$ScriptDir\setup-ssl.ps1"
+  $composeFiles += @("-f", "..\overrides\compose.selfsigned.yaml")
 } else {
   Write-Host "Mode: ONLINE — HTTPS with Let's Encrypt"
   $composeFiles += @("-f", "overrides/compose.https.yaml")

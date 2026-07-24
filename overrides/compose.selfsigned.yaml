@@ -1,0 +1,21 @@
+services:
+  frontend:
+    labels:
+      - traefik.http.routers.frontend-http.entrypoints=websecure
+      - traefik.http.routers.frontend-http.tls=true
+      - traefik.http.routers.frontend-http.rule=${SITES_RULE:?SITES_RULE not set}
+
+  proxy:
+    command:
+      - --providers.docker
+      - --providers.docker.exposedbydefault=false
+      - --entrypoints.web.address=:80
+      - --entrypoints.web.http.redirections.entrypoint.to=websecure
+      - --entrypoints.web.http.redirections.entrypoint.scheme=https
+      - --entrypoints.websecure.address=:443
+      - --providers.file.filename=/certs/dynamic.yml
+    ports:
+      - ${HTTPS_PUBLISH_PORT:-443}:443
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ../certs:/certs:ro
