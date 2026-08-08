@@ -45,3 +45,20 @@ docker compose -f "$RepoDir/compose.custom.yaml" exec backend `
     $installFlags `
     --admin-password $adminPwd `
     $SiteName
+
+Write-Host ""
+Write-Host "Running patches and migrations..."
+docker compose -f "$RepoDir/compose.custom.yaml" exec backend `
+  bench --site $SiteName migrate
+
+Write-Host ""
+Write-Host "Building frontend assets..."
+docker compose -f "$RepoDir/compose.custom.yaml" exec backend `
+  bench --site $SiteName build
+
+Write-Host ""
+Write-Host "Syncing assets to frontend..."
+docker compose -f "$RepoDir/compose.custom.yaml" exec backend `
+  tar -chf - --exclude='node_modules' -C /home/frappe/frappe-bench assets `
+  | docker compose -f "$RepoDir/compose.custom.yaml" exec -T frontend `
+  tar -xf - -C /home/frappe/frappe-bench

@@ -49,3 +49,20 @@ docker compose -f "$REPO_DIR/compose.custom.yaml" exec backend \
     $INSTALL_APP_FLAGS \
     --admin-password "${ADMIN_PASSWORD:-admin}" \
     "$SITE_NAME"
+
+echo ""
+echo "Running patches and migrations..."
+docker compose -f "$REPO_DIR/compose.custom.yaml" exec backend \
+  bench --site "$SITE_NAME" migrate
+
+echo ""
+echo "Building frontend assets..."
+docker compose -f "$REPO_DIR/compose.custom.yaml" exec backend \
+  bench --site "$SITE_NAME" build
+
+echo ""
+echo "Syncing assets to frontend..."
+docker compose -f "$REPO_DIR/compose.custom.yaml" exec backend \
+  tar -chf - --exclude='node_modules' -C /home/frappe/frappe-bench assets \
+  | docker compose -f "$REPO_DIR/compose.custom.yaml" exec -T frontend \
+  tar -xf - -C /home/frappe/frappe-bench
