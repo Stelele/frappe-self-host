@@ -23,27 +23,29 @@ if [ -z "$SITE_NAME" ]; then
   exit 1
 fi
 
-# Extract all app names from apps.json (excluding frappe itself)
-INSTALL_APPS="erpnext"
-if [ -f "$REPO_DIR/apps.json" ]; then
-  ALL_APPS=$(python3 -c "
-import json
-with open('$REPO_DIR/apps.json') as f:
-    apps = json.load(f)
-names = [a['url'].split('/')[-1] for a in apps if a['url'].split('/')[-1] not in ('frappe', 'erpnext')]
-print(' '.join(names))
-" 2>/dev/null) || ALL_APPS=""
-  if [ -n "$ALL_APPS" ]; then
-    INSTALL_APPS="$INSTALL_APPS $ALL_APPS"
-  fi
+# Read installed apps from the image's apps.txt (excludes frappe, includes erpnext and custom apps)
+INSTALL_APPS_LIST=$(docker compose -f "$REPO_DIR/compose.custom.yaml" exec backend \
+  cat /home/frappe/frappe-bench/sites/apps.txt 2>/dev/null \
+  | grep -v '^frappe$' \
+  | tr '\n' ' ')
+INSTALL_APPS_LIST="${INSTALL_APPS_LIST%% }"
+if [ -z "$INSTALL_APPS_LIST" ]; then
+  echo "ERROR: Could not read apps.txt from backend container"
+  exit 1
 fi
 
-echo "Creating site $SITE_NAME with apps: $INSTALL_APPS..."
+# Build repeated --install-app flags
+INSTALL_APP_FLAGS=""
+for app in $INSTALL_APPS_LIST; do
+  INSTALL_APP_FLAGS="$INSTALL_APP_FLAGS --install-app $app"
+done
+
+echo "Creating site $SITE_NAME with apps: $INSTALL_APPS_LIST..."
 
 docker compose -f "$REPO_DIR/compose.custom.yaml" exec backend \
   bench new-site \
     --mariadb-user-host-login-scope=% \
     --db-root-password "$DB_PASSWORD" \
-    --install-app $INSTALL_APPS \
+    $INSTALL_APP_FLAGS \
     --admin-password "${ADMIN_PASSWORD:-admin}" \
     "$SITE_NAME"

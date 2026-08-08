@@ -22,26 +22,26 @@ Get-Content $EnvFile | ForEach-Object {
   }
 }
 
-# Extract all app names from apps.json (excluding frappe itself)
-$installApps = @("erpnext")
-$appsJson = "$RepoDir/apps.json"
-if (Test-Path $appsJson) {
-  $apps = Get-Content $appsJson | ConvertFrom-Json
-  $customApps = $apps | ForEach-Object {
-    $name = $_.url.Split('/')[-1]
-    if ($name -notin @('frappe', 'erpnext')) { $name }
-  }
-  $installApps += $customApps
+# Read installed apps from the image's apps.txt (excludes frappe, includes erpnext and custom apps)
+$appsRaw = docker compose -f "$RepoDir/compose.custom.yaml" exec backend `
+  cat /home/frappe/frappe-bench/sites/apps.txt 2>$null
+if ($LASTEXITCODE -ne 0 -or -not $appsRaw) {
+  Write-Error "Could not read apps.txt from backend container"
+  exit 1
 }
+$installApps = ($appsRaw -split '\r?\n' | Where-Object { $_ -and $_ -ne 'frappe' })
 
 $adminPwd = if ($EnvVars['ADMIN_PASSWORD']) { $EnvVars['ADMIN_PASSWORD'] } else { "admin" }
 
 Write-Host "Creating site $SiteName with apps: $($installApps -join ' ')..."
 
+# Build repeated --install-app flags
+$installFlags = ($installApps | ForEach-Object { "--install-app $_" }) -join ' '
+
 docker compose -f "$RepoDir/compose.custom.yaml" exec backend `
   bench new-site `
     --mariadb-user-host-login-scope=% `
     --db-root-password $EnvVars['DB_PASSWORD'] `
-    --install-app $($installApps -join ' ') `
+    $installFlags `
     --admin-password $adminPwd `
     $SiteName

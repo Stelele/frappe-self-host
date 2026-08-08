@@ -23,6 +23,11 @@ echo ""
 echo ">>> Step 4: Verify"
 bash "$SCRIPT_DIR/verify.sh"
 
+SITE_NAME="${1:-basapos.local}"
+
+echo ""
+echo ">>> Step 5: Create site ($SITE_NAME)"
+bash "$SCRIPT_DIR/create-site.sh" "$SITE_NAME"
+
 echo ""
 echo "=== All done! ==="
-echo "Create a site: $SCRIPT_DIR/create-site.sh <your-domain>"

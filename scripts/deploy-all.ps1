@@ -1,5 +1,7 @@
 #!/usr/bin/env pwsh
-param()
+param(
+    [string]$SiteName = "basapos.local"
+)
 
 docker context use default 2>$null
 
@@ -25,5 +27,8 @@ Write-Host ">>> Step 4: Verify"
 & "$ScriptDir\verify.ps1"
 
 Write-Host ""
+Write-Host ">>> Step 5: Create site ($SiteName)"
+& "$ScriptDir\create-site.ps1" $SiteName
+
+Write-Host ""
 Write-Host "=== All done! ==="
-Write-Host "Create a site: $ScriptDir\create-site.ps1 <your-domain>"
