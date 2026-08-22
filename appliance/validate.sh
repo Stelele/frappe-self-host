@@ -43,7 +43,7 @@ pass "all required members present"
 
 # --- systemd enablement symlinks --------------------------------------------
 for u in basapos-gunicorn basapos-socketio basapos-worker-short \
-         basapos-worker-long basapos-scheduler basapos-firstboot mariadb redis-server; do
+         basapos-worker-long basapos-scheduler basapos-firstboot mariadb redis-server nginx; do
   has "./etc/systemd/system/multi-user.target.wants/${u}.service" \
     || fail "unit not enabled: ${u}.service"
 done
@@ -59,6 +59,7 @@ for m in \
   ./etc/systemd/system/basapos-firstboot.service \
   ./usr/lib/systemd/system/mariadb.service \
   ./usr/lib/systemd/system/redis-server.service \
+  ./usr/lib/systemd/system/nginx.service \
   ./home/frappe/bench/apps/frappe/socketio.js \
   ; do
   has "$m" || fail "missing unit/socketio member: $m"
