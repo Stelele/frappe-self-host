@@ -15,3 +15,6 @@ compose.custom.yaml
 *.swp
 *.swo
 certs/
+
+# Appliance build artifacts
+appliance/dist/
