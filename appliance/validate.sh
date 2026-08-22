@@ -15,6 +15,8 @@ has() { tar -tzf "$TAR" "$1" >/dev/null 2>&1; }
 for m in \
   ./etc/wsl.conf \
   ./lib/systemd/systemd \
+  ./etc/hosts \
+  ./etc/machine-id \
   ./home/frappe/bench/sites/basapos.local/site_config.json \
   ./home/frappe/bench/sites/basapos.local/private/backups \
   ./home/frappe/bench/env/bin/gunicorn \
@@ -54,7 +56,7 @@ pass "machine-id blank"
 
 # --- nginx conf sanity ----------------------------------------------------------
 ngx=$(tar -xzOf "$TAR" ./etc/nginx/sites-available/basapos.conf)
-grep -q 'listen 443 ssl' <<<"$ngx" || fail "nginx missing 443 ssl listener"
+grep -q '^[[:space:]]*listen 443 ssl' <<<"$ngx" || fail "nginx missing 443 ssl listener"
 grep -q 'server_name basapos.local' <<<"$ngx" || fail "nginx missing server_name"
 pass "nginx conf sane"
 
