@@ -9,12 +9,21 @@ pass() { echo "ok:   $*"; }
 
 [[ -f "$TAR" ]] || fail "tarball not found: $TAR"
 
-has() { tar -tzf "$TAR" "$1" >/dev/null 2>&1; }
+# docker export emits members WITHOUT the leading "./"; normalize queries.
+# List members once — scanning the gzipped rootfs per-query is far too slow.
+MEMBERS="$(mktemp)"
+trap 'rm -f "$MEMBERS"' EXIT
+tar -tzf "$TAR" > "$MEMBERS"
+has() {
+  local p="${1#./}"
+  # directories are listed by tar with a trailing slash
+  grep -qxF -- "$p" "$MEMBERS" || grep -qxF -- "$p/" "$MEMBERS"
+}
 
 # --- required filesystem members -------------------------------------------
 for m in \
   ./etc/wsl.conf \
-  ./lib/systemd/systemd \
+  ./usr/lib/systemd/systemd \
   ./etc/hosts \
   ./etc/machine-id \
   ./home/frappe/bench/sites/basapos.local/site_config.json \
@@ -38,24 +47,45 @@ for u in basapos-gunicorn basapos-socketio basapos-worker-short \
 done
 pass "all units enabled"
 
+# --- enabled units' target bodies must exist in the rootfs -------------------
+for m in \
+  ./etc/systemd/system/basapos-gunicorn.service \
+  ./etc/systemd/system/basapos-socketio.service \
+  ./etc/systemd/system/basapos-worker-short.service \
+  ./etc/systemd/system/basapos-worker-long.service \
+  ./etc/systemd/system/basapos-scheduler.service \
+  ./etc/systemd/system/basapos-firstboot.service \
+  ./usr/lib/systemd/system/mariadb.service \
+  ./usr/lib/systemd/system/redis-server.service \
+  ./home/frappe/bench/apps/frappe/socketio.js \
+  ; do
+  has "$m" || fail "missing unit/socketio member: $m"
+done
+pass "all unit targets present"
+
 # --- wsl.conf content ---------------------------------------------------------
-wslconf=$(tar -xzOf "$TAR" ./etc/wsl.conf)
+wslconf=$(tar -xzOf "$TAR" etc/wsl.conf)
 grep -q '^systemd=true' <<<"$wslconf" || fail "wsl.conf missing systemd=true"
 grep -q '^generateHosts=false' <<<"$wslconf" || fail "wsl.conf missing generateHosts=false"
 pass "wsl.conf correct"
 
+# --- hostname stamped ----------------------------------------------------------
+hn=$(tar -xzOf "$TAR" etc/hostname)
+grep -qx 'basapos' <<<"$hn" || fail "hostname not stamped (got: $hn)"
+pass "hostname stamped"
+
 # --- hosts carries the domain --------------------------------------------------
-hosts=$(tar -xzOf "$TAR" ./etc/hosts)
+hosts=$(tar -xzOf "$TAR" etc/hosts)
 grep -q '127.0.0.1[[:space:]]\+basapos.local' <<<"$hosts" || fail "hosts missing basapos.local"
 pass "hosts entry present"
 
 # --- machine-id must be BLANK (WSL regenerates on import) ----------------------
-midsize=$(tar -xzOf "$TAR" ./etc/machine-id | wc -c)
+midsize=$(tar -xzOf "$TAR" etc/machine-id | wc -c)
 [[ "$midsize" -eq 0 ]] || fail "machine-id not blank (${midsize} bytes)"
 pass "machine-id blank"
 
 # --- nginx conf sanity ----------------------------------------------------------
-ngx=$(tar -xzOf "$TAR" ./etc/nginx/sites-available/basapos.conf)
+ngx=$(tar -xzOf "$TAR" etc/nginx/sites-available/basapos.conf)
 grep -q '^[[:space:]]*listen 443 ssl' <<<"$ngx" || fail "nginx missing 443 ssl listener"
 grep -q 'server_name basapos.local' <<<"$ngx" || fail "nginx missing server_name"
 pass "nginx conf sane"
