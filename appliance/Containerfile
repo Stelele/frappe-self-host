@@ -16,7 +16,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       redis-server \
       nginx \
       fontconfig libxrender1 libxext6 xfonts-75dpi xfonts-base \
-      openssl cron file tzdata \
+      openssl cron file tzdata systemd \
       zlib1g-dev libbz2-dev libreadline-dev libsqlite3-dev \
       libncursesw5-dev xz-utils liblzma-dev uuid-dev \
     && rm -rf /var/lib/apt/lists/*
