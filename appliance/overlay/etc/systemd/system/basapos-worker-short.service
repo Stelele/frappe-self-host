@@ -1,0 +1,14 @@
+[Unit]
+Description=BasaPOS worker (short/default queues)
+After=network.target mariadb.service redis-server.service basapos-firstboot.service
+Wants=mariadb.service redis-server.service
+
+[Service]
+User=frappe
+WorkingDirectory=/home/frappe/bench/sites
+ExecStart=/home/frappe/bench/env/bin/python -m frappe.utils.bench_helper frappe worker --queue short,default
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

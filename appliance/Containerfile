@@ -35,9 +35,9 @@ RUN curl -fsSL -o /tmp/cpython.tgz https://www.python.org/ftp/python/3.14.7/Pyth
     && echo "62859805f6fdf25e2bcbf3fa3217801e1996887ca33e6a2af80674bdfa2dbe07  /tmp/cpython.tgz" | sha256sum -c - \
     && tar -xzf /tmp/cpython.tgz -C /tmp \
     && cd /tmp/Python-3.14.7 \
-    && ./configure --prefix=/usr/local --with-ensurepip=install > /dev/null \
-    && make -j"$(nproc)" > /dev/null \
-    && make altinstall > /dev/null \
+    && ./configure --prefix=/usr/local --with-ensurepip=install \
+    && make -j"$(nproc)" \
+    && make altinstall \
     && cd / && rm -rf /tmp/Python-3.14.7 /tmp/cpython.tgz \
     && /usr/local/bin/python3.14 --version
 
@@ -54,6 +54,9 @@ COPY appliance/mariadb/50-basapos.cnf /etc/mysql/mariadb.conf.d/50-basapos.cnf
 
 # ---- overlay consumed by provision (nginx site conf) --------------------------
 COPY appliance/overlay/etc/nginx/ /etc/nginx/
+
+# ---- basapos systemd units (enabled offline by provision) ---------------------
+COPY appliance/overlay/etc/systemd/ /etc/systemd/
 
 # ---- provisioning payload -----------------------------------------------------
 COPY --chmod=0755 appliance/provision.sh /opt/provision.sh

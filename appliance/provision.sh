@@ -98,17 +98,12 @@ wire_nginx() {
   rm -f /etc/nginx/sites-available/.gitkeep
   mkdir -p /etc/nginx/ssl
   ln -sf /etc/nginx/sites-available/basapos.conf /etc/nginx/sites-enabled/basapos.conf
-  # Build-time THROWAWAY cert (CN=build-time-placeholder) so `nginx -t` passes;
-  # the real per-machine cert (unique CN) is generated at WSL boot by the
-  # basapos-firstboot unit (Task 7), whose ConditionPathExists logic checks a
-  # marker/CN — Task 7's hygiene step REMOVES this placeholder so firstboot
-  # regenerates it.
+  # throwaway cert so nginx -t passes; removed below — real per-machine cert is
+  # generated at WSL boot by basapos-firstboot.service (unique CN)
   openssl req -x509 -nodes -days 3650 -newkey rsa:2048 \
     -keyout /etc/nginx/ssl/basapos.key -out /etc/nginx/ssl/basapos.crt \
     -subj "/CN=build-time-placeholder" >/dev/null 2>&1
   nginx -t
-  # Remove the throwaway so the exported image ships NO baked-in key and the
-  # basapos-firstboot unit (Task 7) generates the real per-machine cert.
   rm -f /etc/nginx/ssl/basapos.crt /etc/nginx/ssl/basapos.key
 }
 
@@ -120,6 +115,34 @@ shutdown_dbs() {
   pgrep -x mariadbd && { echo "mariadbd still alive"; exit 1; } || true
 }
 
+enable_units() {
+  log "enabling systemd units (offline symlink method)"
+  local wants=/etc/systemd/system/multi-user.target.wants
+  mkdir -p "$wants"
+  local units=(basapos-gunicorn basapos-socketio basapos-worker-short \
+               basapos-worker-long basapos-scheduler basapos-firstboot \
+               mariadb redis-server)
+  local u src
+  for u in "${units[@]}"; do
+    src="/etc/systemd/system/${u}.service"
+    # packaged units (mariadb, redis-server) ship no /etc copy — link their
+    # real /lib path or the wants entry would dangle and never start
+    [[ -f $src ]] || src="/lib/systemd/system/${u}.service"
+    ln -sfn "$src" "${wants}/${u}.service"
+  done
+}
+
+hygiene() {
+  log "WSL hygiene: ids, caches, logs"
+  truncate -s 0 /etc/machine-id          # WSL regenerates on import
+  : > /var/lib/dbus/machine-id || true
+  echo basapos > /etc/hostname
+  apt-get clean
+  rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+  find /var/log -type f -name '*.log' -exec truncate -s 0 {} \; 2>/dev/null || true
+  rm -f /var/log/mysqld-provision.log /opt/provision.sh  # provision traces gone
+}
+
 install_bench_cli
 create_user
 init_bench_and_apps
@@ -128,4 +151,6 @@ bootstrap_redis
 create_site
 wire_nginx
 shutdown_dbs
-echo "[provision] TASK6 COMPLETE"
+enable_units
+hygiene
+echo "[provision] APPLIANCE READY"
