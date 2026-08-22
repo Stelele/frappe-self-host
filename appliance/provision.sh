@@ -32,7 +32,32 @@ init_bench_and_apps() {
   '
 }
 
+MARIADB_ROOT_PW="BasaPOS-root-2026"   # localhost-only; documented in spec §8
+
+bootstrap_mariadb() {
+  log "initializing + starting mariadb"
+  mkdir -p /run/mysqld && chown mysql:mysql /run/mysqld
+  mariadb-install-db --user=mysql --datadir=/var/lib/mysql >/dev/null 2>&1 || true
+  ( mysqld_safe --skip-syslog >/var/log/mysqld-provision.log 2>&1 & )
+  for i in $(seq 1 60); do
+    mariadb-admin ping >/dev/null 2>&1 && break
+    sleep 2
+  done
+  mariadb-admin ping || { echo "mariadb did not start"; exit 1; }
+  mariadb -e "SET PASSWORD FOR 'root'@'localhost' = PASSWORD('${MARIADB_ROOT_PW}');
+              FLUSH PRIVILEGES;"
+  log "mariadb ready (root pw set, native auth)"
+}
+
+bootstrap_redis() {
+  log "starting redis"
+  redis-server --daemonize yes --save '' --appendonly no
+  redis-cli ping | grep -q PONG
+}
+
 install_bench_cli
 create_user
 init_bench_and_apps
-echo "[provision] TASK4 COMPLETE"
+bootstrap_mariadb
+bootstrap_redis
+echo "[provision] TASK5 COMPLETE"
