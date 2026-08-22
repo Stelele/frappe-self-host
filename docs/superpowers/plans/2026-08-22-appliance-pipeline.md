@@ -880,3 +880,16 @@ git commit -m "docs: appliance rootfs build instructions"
 - **socketio entrypoint path** may differ on v16 (`apps/frappe/socketio.js` vs bundled node server). Verified implicitly by Task 9's CI boot? No — first *runtime* boot happens in Plan B's E2E; if the unit fails there, fix path in Task 7's unit and rebuild.
 - **Custom app install failures** surface at Task 6 build (get-app/install-app) — fix `apps.json` branches, not the appliance.
 - **Tarball size**: `gzip -1` trades size for speed; if >2 GB becomes a problem, switch to `zstd` later.
+
+---
+
+## Revision R1 (2026-08-22) — Python 3.14 source build
+
+**Trigger:** Frappe `version-16` upstream declares `requires-python = ">=3.14,<3.15"`; jammy ships 3.10 → `bench init` fails building frappe's editable install.
+
+**Decision (user-approved):** keep Ubuntu 22.04 digest-pinned base; add a Containerfile stage that source-builds the latest pinned CPython `3.14.x` (tarball + sha256 verified, `make altinstall` → `/usr/local/bin/python3.14`). `init_bench_and_apps()` passes `--python /usr/local/bin/python3.14` to `bench init`. System python3.10 remains for the bench CLI itself.
+
+Also folded in during execution:
+- wkhtmltopdf RUN hardened (no stderr suppression; trailing patched-qt assertion)
+- Overlay COPY split (nginx before provision; wsl.conf/hosts after) for cache efficiency
+- MariaDB legacy innodb vars dropped (dead on 10.3+, drift trap)
