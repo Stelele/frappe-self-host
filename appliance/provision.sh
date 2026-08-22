@@ -107,6 +107,9 @@ wire_nginx() {
     -keyout /etc/nginx/ssl/basapos.key -out /etc/nginx/ssl/basapos.crt \
     -subj "/CN=build-time-placeholder" >/dev/null 2>&1
   nginx -t
+  # Remove the throwaway so the exported image ships NO baked-in key and the
+  # basapos-firstboot unit (Task 7) generates the real per-machine cert.
+  rm -f /etc/nginx/ssl/basapos.crt /etc/nginx/ssl/basapos.key
 }
 
 shutdown_dbs() {
@@ -114,7 +117,7 @@ shutdown_dbs() {
   mariadb-admin shutdown || true
   redis-cli shutdown nosave || true
   sleep 2
-  pgrep -x mysqld && { echo "mysqld still alive"; exit 1; } || true
+  pgrep -x mariadbd && { echo "mariadbd still alive"; exit 1; } || true
 }
 
 install_bench_cli
