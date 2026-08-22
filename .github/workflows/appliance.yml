@@ -1,0 +1,30 @@
+name: appliance
+
+on:
+  push:
+    branches: [main]
+    paths: ["appliance/**", "apps.json", ".github/workflows/appliance.yml"]
+  pull_request:
+    paths: ["appliance/**", "apps.json", ".github/workflows/appliance.yml"]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build, smoke, stamp, export, validate
+        run: bash appliance/build.sh
+
+      - name: Checksum + size report
+        run: |
+          cd appliance/dist
+          sha256sum basapos-rootfs.tar.gz > SHA256SUMS
+          cat SHA256SUMS && ls -lh basapos-rootfs.tar.gz
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: basapos-rootfs
+          path: appliance/dist/
