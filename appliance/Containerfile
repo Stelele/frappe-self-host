@@ -17,13 +17,29 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       nginx \
       fontconfig libxrender1 libxext6 xfonts-75dpi xfonts-base \
       openssl cron file \
+      zlib1g-dev libbz2-dev libreadline-dev libsqlite3-dev \
+      libncursesw5-dev xz-utils liblzma-dev uuid-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# ---- Node 20 -----------------------------------------------------------------
-RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+# ---- Node 24 -----------------------------------------------------------------
+RUN curl -fsSL https://deb.nodesource.com/setup_24.x | bash - \
     && apt-get install -y --no-install-recommends nodejs \
     && npm install --global yarn@1.22.19 \
     && rm -rf /var/lib/apt/lists/*
+
+# ---- CPython 3.14.x from source (frappe version-16 requires >=3.14,<3.15) ----
+# System python3.10 stays for the bench CLI; /usr/local/bin/python3.14 for the bench venv.
+# Pin: Python-3.14.7.tgz sha256 verified against docker-library/python's GPG-checked
+# release pin via identical .tar.xz content tree (no SHA256SUMS published by python.org).
+RUN curl -fsSL -o /tmp/cpython.tgz https://www.python.org/ftp/python/3.14.7/Python-3.14.7.tgz \
+    && echo "62859805f6fdf25e2bcbf3fa3217801e1996887ca33e6a2af80674bdfa2dbe07  /tmp/cpython.tgz" | sha256sum -c - \
+    && tar -xzf /tmp/cpython.tgz -C /tmp \
+    && cd /tmp/Python-3.14.7 \
+    && ./configure --prefix=/usr/local --with-ensurepip=install > /dev/null \
+    && make -j"$(nproc)" > /dev/null \
+    && make altinstall > /dev/null \
+    && cd / && rm -rf /tmp/Python-3.14.7 /tmp/cpython.tgz \
+    && /usr/local/bin/python3.14 --version
 
 # ---- patched wkhtmltopdf (official jammy build) ------------------------------
 RUN curl -fsSL -o /tmp/wkhtmltox.deb \
