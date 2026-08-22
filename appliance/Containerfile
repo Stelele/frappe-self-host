@@ -8,7 +8,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
 
 # ---- system packages --------------------------------------------------------
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      ca-certificates curl wget git gnupg lsb-release sudo jq \
+      ca-certificates curl git gnupg lsb-release sudo jq \
       build-essential pkg-config \
       python3.10 python3.10-dev python3-pip python3.10-venv \
       libpython3.10-dev libffi-dev libssl-dev libmariadb-dev \
@@ -28,21 +28,27 @@ RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
 # ---- patched wkhtmltopdf (official jammy build) ------------------------------
 RUN curl -fsSL -o /tmp/wkhtmltox.deb \
       https://github.com/wkhtmltopdf/packaging/releases/download/0.12.6.1-2/wkhtmltox_0.12.6.1-2.jammy_amd64.deb \
-    && dpkg -i /tmp/wkhtmltox.deb 2>/dev/null || apt-get -f install -y \
-    && rm -f /tmp/wkhtmltox.deb
+    && ( dpkg -i /tmp/wkhtmltox.deb \
+         || { apt-get update && apt-get -f install -y; } ) \
+    && rm -f /tmp/wkhtmltox.deb \
+    && wkhtmltopdf --version | grep -q 'patched qt'
 
 # ---- frappe-required MariaDB tuning ------------------------------------------
 COPY appliance/mariadb/50-basapos.cnf /etc/mysql/mariadb.conf.d/50-basapos.cnf
 
-# ---- overlay (wsl.conf, hosts, nginx site) -----------------------------------
-COPY appliance/overlay/ /
+# ---- overlay consumed by provision (nginx site conf) --------------------------
+COPY appliance/overlay/etc/nginx/ /etc/nginx/
 
 # ---- provisioning payload -----------------------------------------------------
-COPY appliance/provision.sh /opt/provision.sh
+COPY --chmod=0755 appliance/provision.sh /opt/provision.sh
 COPY apps.json /tmp/apps.json
-RUN chmod +x /opt/provision.sh
 
 # ---- provision -----------------------------------------------------------------
 RUN bash /opt/provision.sh
+
+# ---- WSL-only overlay: not read by provision; kept after it so config tweaks
+#      don't invalidate the expensive provision layer ---------------------------
+COPY appliance/overlay/etc/wsl.conf /etc/wsl.conf
+COPY appliance/overlay/etc/hosts /etc/hosts
 
 CMD ["/bin/bash"]
