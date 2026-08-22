@@ -43,7 +43,7 @@ bootstrap_mariadb() {
     mariadb-admin ping >/dev/null 2>&1 && break
     sleep 2
   done
-  mariadb-admin ping || { echo "mariadb did not start"; exit 1; }
+  mariadb-admin ping || { echo "mariadb did not start"; tail -30 /var/log/mysqld-provision.log >&2; exit 1; }
   mariadb -e "SET PASSWORD FOR 'root'@'localhost' = PASSWORD('${MARIADB_ROOT_PW}');
               FLUSH PRIVILEGES;"
   log "mariadb ready (root pw set, native auth)"
