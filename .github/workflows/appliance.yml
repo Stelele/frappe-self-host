@@ -2,7 +2,7 @@ name: appliance
 
 on:
   push:
-    branches: [main]
+    branches: [master, main]
     paths: ["appliance/**", "apps.json", ".github/workflows/appliance.yml"]
   pull_request:
     paths: ["appliance/**", "apps.json", ".github/workflows/appliance.yml"]
