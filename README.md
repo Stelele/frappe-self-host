@@ -102,3 +102,15 @@ frappe-deploy/
 ├── backups/
 └── .github/workflows/
 ```
+
+## Appliance Rootfs (Windows target)
+
+The Windows installer (see `docs/superpowers/specs/2026-08-22-wsl-native-windows-installer-design.md`)
+consumes a WSL-importable rootfs built from `appliance/`:
+
+    bash appliance/build.sh     # build → smoke → stamp → export → validate
+    # → appliance/dist/basapos-rootfs.tar.gz (~1.9 GB)
+
+CI produces the same artifact on every push touching `appliance/**` or `apps.json`
+(artifact `basapos-rootfs` with SHA256SUMS). App changes: edit `apps.json` —
+shared source of truth with the Docker flow.
