@@ -16,8 +16,10 @@ trap 'rm -f "$MEMBERS"' EXIT
 tar -tzf "$TAR" > "$MEMBERS"
 has() {
   local p="${1#./}"
-  # directories are listed by tar with a trailing slash
-  grep -qxF -- "$p" "$MEMBERS" || grep -qxF -- "$p/" "$MEMBERS"
+  # directories are listed by tar with a trailing slash; also accept "./"-prefixed
+  # archives (GNU-tar-produced rootfs) for producer independence
+  grep -qxF -- "$p" "$MEMBERS" || grep -qxF -- "$p/" "$MEMBERS" \
+    || grep -qxF -- "./$p" "$MEMBERS"
 }
 
 # --- required filesystem members -------------------------------------------
