@@ -45,8 +45,8 @@ Copy-Item (Join-Path $Pkg 'payload\app\settings.template.txt') (Join-Path $Paylo
 Write-Host '== 3/4 locating ISCC =='
 if (-not $IsccPath) {
   $candidates = @(
-    Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe',
-    Join-Path $env:ProgramFiles 'Inno Setup 6\ISCC.exe'
+    (Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'),
+    (Join-Path $env:ProgramFiles 'Inno Setup 6\ISCC.exe')
   )
   $cmd = Get-Command iscc.exe -ErrorAction SilentlyContinue
   if ($cmd) { $candidates += $cmd.Source }
