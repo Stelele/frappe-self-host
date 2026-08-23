@@ -93,7 +93,7 @@ namespace BasaPOS
             var b = new Button
             {
                 Text = text, Size = new Size(96, 32), Location = new Point(x, 10),
-                FlatStyle = FlatStyle.FlatStyle.Flat,
+                FlatStyle = FlatStyle.Flat,
                 BackColor = Color.White, ForeColor = Color.FromArgb(32, 32, 32)
             };
             b.FlatAppearance.BorderColor = Color.FromArgb(200, 200, 200);
