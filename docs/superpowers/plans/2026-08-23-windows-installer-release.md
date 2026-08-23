@@ -1268,7 +1268,7 @@ function Check([string]$name, [bool]$ok) {
 }
 
 Write-Host '== enable WSL =='
-wsl --install --no-distribution 2>$null | Out-Null
+wsl --install --no-distribution | Out-Null
 $env:WSL_UTF8 = '1'
 
 Write-Host '== import rootfs =='
@@ -1286,7 +1286,7 @@ $services = 'nginx basapos-gunicorn basapos-socketio basapos-scheduler basapos-w
 $deadline = (Get-Date).AddMinutes(6)
 $allActive = $false
 while ((Get-Date) -lt $deadline) {
-  $out = wsl -d $Distro -u root -- bash -c "systemctl is-active $services" 2>$null
+  $out = wsl -d $Distro -u root -- bash -c "systemctl is-active $services"
   $states = @($out | Where-Object { $_ })
   if (($states.Count -eq 8) -and (-not ($states -ne 'active'))) { $allActive = $true; break }
   Start-Sleep -Seconds 10
@@ -1299,7 +1299,7 @@ Check 'site responds 200' ("$out".Trim() -eq '200')
 
 Write-Host '== firstboot TLS generated =='
 $out = wsl -d $Distro -u root -- bash -c "openssl x509 -in /etc/nginx/ssl/basapos.crt -noout -subject"
-Check ('cert subject CN=basapos.local -> ' + "$out".Trim()) ("$out" -match 'basapos.local')
+Check ('cert subject CN=basapos.local -> ' + "$out".Trim()) ("$out" -match 'subject=.*basapos\.local')
 
 Write-Host ''
 if ($script:fail -gt 0) { Write-Host "E2E FAILED ($($script:fail) checks)"; exit 1 }
