@@ -22,10 +22,10 @@ function Invoke-SilentSetup([string]$logName) {
   $p = Start-Process -FilePath $SetupExe `
     -ArgumentList '/VERYSILENT','/NORESTART','/SUPPRESSMSGBOXES','/FORCECLOSEAPPLICATIONS',"/LOG=$env:RUNNER_TEMP\$logName" `
     -PassThru
-  # 20 min timeout — bench restore+import can be slow but 70+ min means hung
+  # 20 min timeout - bench restore+import can be slow but 70+ min means hung
   $killed = -not $p.WaitForExit(1200000)
   if ($killed) {
-    Write-Host "  [TIMEOUT] setup.exe did not exit in 20 min — killing"
+    Write-Host "  [TIMEOUT] setup.exe did not exit in 20 min - killing"
     $p | Stop-Process -Force -ErrorAction SilentlyContinue
     Start-Sleep 2
   }
@@ -39,7 +39,7 @@ function Invoke-SilentSetup([string]$logName) {
   return $p
 }
 
-# ---------------------------------------------------------------- 1 · INSTALL
+# ---------------------------------------------------------------- 1 - INSTALL
 Write-Host '== 1. silent install =='
 $p = Invoke-SilentSetup 'inno-install.log'
 Check "setup exit 0 (got $($p.ExitCode))" ($p.ExitCode -eq 0)
@@ -57,7 +57,7 @@ $code = & $ping
 Check "site responds 200 from host (got $code)" ("$code" -eq '200')
 $pwBefore = ($creds | Select-String '^password=').Line
 
-# ------------------------------------------------------ 2 · AUTOSTART WRAPPER
+# ------------------------------------------------------ 2 - AUTOSTART WRAPPER
 Write-Host '== 2. autostart wrapper reaches RUNNING =='
 & wsl.exe --terminate BasaPOS 2>$null
 Remove-Item "$AppDir\appliance-status.txt" -Force -ErrorAction SilentlyContinue
@@ -71,7 +71,7 @@ while ((Get-Date) -lt $deadline) {
 }
 Check 'boot-wrapper stamps RUNNING' $running
 
-# -------------------------------------------------------- 3 · UPGRADE DRILL
+# -------------------------------------------------------- 3 - UPGRADE DRILL
 Write-Host '== 3. upgrade drill (re-run setup) =='
 # Kill anything that could stall Inno's CloseApplications check
 & wsl.exe --shutdown 2>$null
@@ -91,7 +91,7 @@ Check 'post-upgrade SETUP_COMPLETE' ("$status2" -match '^SETUP_COMPLETE')
 $code2 = & $ping
 Check "site responds 200 post-upgrade (got $code2)" ("$code2" -eq '200')
 
-# ------------------------------------------------------------ 4 · UNINSTALL
+# ------------------------------------------------------------ 4 - UNINSTALL
 Write-Host '== 4. silent uninstall =='
 & wsl.exe --shutdown
 Start-Sleep -Seconds 5
