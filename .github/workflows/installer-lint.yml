@@ -1,0 +1,26 @@
+name: installer-lint
+
+on:
+  push:
+    branches: [master, main]
+    paths: ["package/**", ".github/workflows/installer-lint.yml"]
+  pull_request:
+    paths: ["package/**", ".github/workflows/installer-lint.yml"]
+
+jobs:
+  pwsh-parse:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Parse all payload scripts
+        run: |
+          set -e
+          fail=0
+          for f in $(find package -name '*.ps1' -type f); do
+            echo "parsing $f"
+            if ! pwsh -NoProfile -Command "\$null = [scriptblock]::Create((Get-Content -Raw '$f')); Write-Host '  OK'"; then
+              fail=1
+            fi
+          done
+          exit $fail
