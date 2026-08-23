@@ -8,8 +8,14 @@ $script:BenchPath = "/home/frappe/bench"
 function Write-BasaLog {
   param([string]$Message)
   $line = "[{0}] {1}" -f (Get-Date -Format "yyyy-MM-dd HH:mm:ss"), $Message
-  Write-Host $line
-  if ($env:BASA_LOG_FILE) { Add-Content -Path $env:BASA_LOG_FILE -Value $line -Encoding ascii }
+  # When BASA_LOG_FILE is set we're running headless (Inno/scheduled task):
+  # console output would fill an unread hidden-console buffer and deadlock
+  # long operations — file-only. Interactive runs have no log file set.
+  if ($env:BASA_LOG_FILE) {
+    Add-Content -Path $env:BASA_LOG_FILE -Value $line -Encoding ascii
+  } else {
+    Write-Host $line
+  }
 }
 
 function Test-RebootPending {

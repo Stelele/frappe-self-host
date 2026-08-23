@@ -17,7 +17,7 @@ Write-BasaLog "boot-wrapper: waking distro $script:Distro"
 # Boot attempt with up to 3 retries (covers VM cold starts / slow disks)
 $woke = $false
 for ($i = 1; $i -le 3; $i++) {
-  & wsl.exe -d $script:Distro -u root --exec /bin/true 2>$null
+  & wsl.exe -d $script:Distro -u root --exec /bin/true 2>$null | Out-Null
   if ($LASTEXITCODE -eq 0) { $woke = $true; break }
   Write-BasaLog "wake attempt $i failed; retrying in 15s"
   Start-Sleep -Seconds 15

@@ -1414,3 +1414,11 @@ user session") into terminating errors under EAP=Stop — aborted setup mid-flig
 though the site came up. Fix: `setup.ps1`/`backup.ps1` run EAP=Continue with explicit
 `$LASTEXITCODE` checks; drill's schtasks query guards EAP around `2>&1`; e2e dumps
 per-unit state + journal tail on service-poll timeout.
+
+## Revision R5 (2026-08-23) — upgrade-run deadlock
+
+Drill phase 3 hung 70 min: Inno runs setup hidden with an **unread console**;
+verbose output (Write-BasaLog echo, Out-Host, native stdout) fills the finite
+hidden-console buffer and deadlocks. Would freeze customer upgrades too.
+Fix: Write-BasaLog is file-only when BASA_LOG_FILE is set (headless contexts);
+all orchestrator native output piped to Out-Null; boot-wrapper wake call silenced.

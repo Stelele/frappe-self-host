@@ -61,7 +61,7 @@ function Import-RootfsIfNeeded {
   if ($freeGB -lt $RequiredFreeGB) { throw "only $freeGB GB free; need ~$RequiredFreeGB GB" }
   New-Item -ItemType Directory -Force -Path $DistroDir | Out-Null
   Write-BasaLog "importing appliance rootfs (minutes)..."
-  & wsl.exe --import $script:Distro $DistroDir $RootfsTar
+  & wsl.exe --import $script:Distro $DistroDir $RootfsTar | Out-Null
   if ($LASTEXITCODE -ne 0) { throw "wsl --import failed (exit $LASTEXITCODE)" }
   $deadline = (Get-Date).AddSeconds(60)
   while (-not (Test-DistroPresent) -and (Get-Date) -lt $deadline) { Start-Sleep -Seconds 3 }
@@ -109,7 +109,7 @@ function New-Credentials {
   # freshly imported image ships a throwaway pw)
   $pw = Get-Content $CredsFile | Where-Object { $_ -match '^password=' } | ForEach-Object { $_.Substring(9).Trim() } | Select-Object -First 1
   if (-not $pw) { throw "credentials.txt missing password line" }
-  & wsl.exe -d $script:Distro -u frappe -- bash -c "cd /home/frappe/bench && bench --site basapos.local set-admin-password '$pw'" | Out-Host
+  & wsl.exe -d $script:Distro -u frappe -- bash -c "cd /home/frappe/bench && bench --site basapos.local set-admin-password '$pw'" | Out-Null
   if ($LASTEXITCODE -ne 0) { throw "set-admin-password failed" }
 }
 
@@ -118,7 +118,7 @@ function Backup-SiteForUpgrade {
   $ts = Get-Date -Format "yyyyMMdd_HHmmss"
   $dest = Join-Path $InstallRoot "backups\pre-upgrade\$ts"
   New-Item -ItemType Directory -Force -Path $dest | Out-Null
-  & wsl.exe -d $script:Distro -u frappe -- bash -c "cd /home/frappe/bench && bench --site basapos.local backup --with-files --backup-path /home/frappe/bench/backups/$ts" | Out-Host
+  & wsl.exe -d $script:Distro -u frappe -- bash -c "cd /home/frappe/bench && bench --site basapos.local backup --with-files --backup-path /home/frappe/bench/backups/$ts" | Out-Null
   if ($LASTEXITCODE -ne 0) { throw "pre-upgrade bench backup failed" }
   Copy-Item "\\wsl$\$script:Distro\home\frappe\bench\backups\$ts\*" $dest -Recurse -Force
   Write-BasaLog "backup at $dest"
@@ -144,9 +144,9 @@ function Restore-LatestBackup {
   $cmd = "cd /home/frappe/bench && bench --site basapos.local --force restore '$inSql'"
   if ($files) { $cmd += " --with-public-files '" + (Convert-ToWslPath $files.FullName) + "'" }
   if ($priv)  { $cmd += " --with-private-files '" + (Convert-ToWslPath $priv.FullName) + "'" }
-  & wsl.exe -d $script:Distro -u frappe -- bash -c $cmd | Out-Host
+  & wsl.exe -d $script:Distro -u frappe -- bash -c $cmd | Out-Null
   if ($LASTEXITCODE -ne 0) { throw "restore failed" }
-  & wsl.exe -d $script:Distro -u frappe -- bash -c "cd /home/frappe/bench && bench --site basapos.local migrate && bench --site basapos.local clear-cache" | Out-Host
+  & wsl.exe -d $script:Distro -u frappe -- bash -c "cd /home/frappe/bench && bench --site basapos.local migrate && bench --site basapos.local clear-cache" | Out-Null
   if ($LASTEXITCODE -ne 0) { throw "post-restore migrate failed" }
   Write-BasaLog "restore complete"
 }
@@ -201,7 +201,7 @@ try {
   Ensure-WslConfig
   & wsl.exe --shutdown 2>$null
 
-  & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "register-autostart.ps1") -InstallRoot $InstallRoot | Out-Host
+  & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "register-autostart.ps1") -InstallRoot $InstallRoot | Out-Null
   if ($LASTEXITCODE -ne 0) { Write-BasaLog "WARN: register-autostart exit $LASTEXITCODE" }
 
   $url = Get-SiteUrl
