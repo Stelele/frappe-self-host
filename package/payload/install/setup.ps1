@@ -141,7 +141,7 @@ function Restore-LatestBackup {
   $tars  = @(Get-ChildItem $Dest -Filter "*.tar")
   $priv  = $tars | Where-Object { $_.Name -match '-private-files\.tar$' } | Select-Object -Last 1
   $files = $tars | Where-Object { $_.Name -notmatch '-private-files\.tar$' } | Select-Object -Last 1
-  $cmd = "cd /home/frappe/bench && bench --site basapos.local --force restore '$inSql'"
+  $cmd = "cd /home/frappe/bench && bench --site basapos.local restore '$inSql' --force"
   if ($files) { $cmd += " --with-public-files '" + (Convert-ToWslPath $files.FullName) + "'" }
   if ($priv)  { $cmd += " --with-private-files '" + (Convert-ToWslPath $priv.FullName) + "'" }
   & wsl.exe -d $script:Distro -u frappe -- bash -c $cmd 2>$null | Out-Null
