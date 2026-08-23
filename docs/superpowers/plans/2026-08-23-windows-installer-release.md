@@ -1391,3 +1391,10 @@ uninstall leaves no hosts entry/task/VHD.
 - Spec §8 hardening: random pw + ACL, no baked secrets (rootfs has throwaway pw reset on fresh installs), no telemetry anywhere
 - Spec §9 LAN_MODE behind settings flag; portproxy refreshed per boot
 - Upgrade path preserves credentials.txt (only fresh installs generate)
+
+---
+
+## Revision R2 (2026-08-23) — first CI run fixes
+
+- **Launcher:** `Timer` is ambiguous under ImplicitUsings (WinForms vs System.Threading) → fully qualify `System.Windows.Forms.Timer` (field + ctor).
+- **E2E:** runner WSL may be an older/inbox session where `[boot] systemd=true` isn't applied on first boot → added `wsl --version/--status/--update/--set-default-version 2` diagnostics, a terminate+restart cycle after import, and a hard `PID1 == systemd` assertion before the service poll.

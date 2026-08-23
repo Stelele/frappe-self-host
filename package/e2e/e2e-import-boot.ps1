@@ -19,6 +19,13 @@ Write-Host '== enable WSL =='
 wsl --install --no-distribution | Out-Null
 $env:WSL_UTF8 = '1'
 
+Write-Host '== WSL diagnostics =='
+wsl --version
+wsl --status
+# Ensure modern store WSL (systemd support) and WSL2 default for imports.
+wsl --update
+wsl --set-default-version 2
+
 Write-Host '== import rootfs =='
 $distroDir = Join-Path $env:RUNNER_TEMP 'basapos-distro'
 New-Item -ItemType Directory -Force -Path $distroDir | Out-Null
@@ -28,6 +35,17 @@ Check 'wsl --import exit 0' ($LASTEXITCODE -eq 0)
 Write-Host '== boot (systemd starts all units) =='
 wsl -d $Distro -u root --exec /bin/true
 Check 'distro boots' ($LASTEXITCODE -eq 0)
+
+# wsl.conf [boot] systemd=true is parsed at distro start; terminate + restart
+# once so a pre-update WSL session can't shadow it.
+wsl --terminate $Distro
+Start-Sleep -Seconds 5
+wsl -d $Distro -u root --exec /bin/true
+
+Write-Host '== assert systemd is PID 1 =='
+$pid1 = wsl -d $Distro -u root -- bash -c "ps -p 1 -o comm="
+Write-Host ("PID1: " + "$pid1".Trim())
+Check 'systemd is init' ("$pid1".Trim() -eq 'systemd')
 
 Write-Host '== wait for services (max 6 min) =='
 $services = 'nginx basapos-gunicorn basapos-socketio basapos-scheduler basapos-worker-short basapos-worker-long mariadb redis-server'

@@ -48,7 +48,7 @@ namespace BasaPOS
         Panel _statusDot;
         TextBox _log;
         Button _btnStart, _btnStop, _btnBackup, _btnOpen, _btnRepair, _btnCreds;
-        Timer _statusTimer;
+        System.Windows.Forms.Timer _statusTimer;
         bool _busy;
 
         public MainForm()
@@ -69,7 +69,7 @@ namespace BasaPOS
 
             BuildUi();
             Load += async (s, e) => await RefreshStatusAsync();
-            _statusTimer = new Timer { Interval = 15000 };
+            _statusTimer = new System.Windows.Forms.Timer { Interval = 15000 };
             _statusTimer.Tick += async (s, e) => await RefreshStatusAsync();
             _statusTimer.Start();
             FormClosed += (s, e) => _statusTimer.Dispose();
