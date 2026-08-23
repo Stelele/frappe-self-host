@@ -111,5 +111,8 @@ Check 'hosts entry removed' (-not (Select-String -Path $HostsFile -Pattern 'basa
 Check 'VHD removed' (-not (Test-Path "$AppDir\data\distro\ext4.vhdx"))
 
 Write-Host ''
-if ($script:fail -gt 0) { Write-Host "INSTALL DRILL FAILED ($($script:fail) checks)"; exit 1 }
+if ($script:fail -gt 0) {
+  Write-Host "INSTALL DRILL FAILED ($script:fail checks)"
+  exit 1
+}
 Write-Host 'INSTALL DRILL PASSED'
