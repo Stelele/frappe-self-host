@@ -48,6 +48,7 @@ namespace BasaPOS
         Panel _statusDot;
         TextBox _log;
         Button _btnStart, _btnStop, _btnBackup, _btnOpen, _btnRepair, _btnCreds;
+        Timer _statusTimer;
         bool _busy;
 
         public MainForm()
@@ -59,7 +60,7 @@ namespace BasaPOS
             MaximizeBox = false;
 
             _appDir = AppContext.BaseDirectory;
-            var installRoot = Path.GetFullPath(Path.Combine(_appDir, ".."));
+            var installRoot = Path.GetFullPath(_appDir);
             _installedMarker = Path.Combine(installRoot, "installed.txt");
             _statusFile = Path.Combine(installRoot, "appliance-status.txt");
             _credsFile = Path.Combine(installRoot, "config", "credentials.txt");
@@ -68,9 +69,10 @@ namespace BasaPOS
 
             BuildUi();
             Load += async (s, e) => await RefreshStatusAsync();
-            var statusTimer = new Timer { Interval = 15000 };
-            statusTimer.Tick += async (s, e) => await RefreshStatusAsync();
-            statusTimer.Start();
+            _statusTimer = new Timer { Interval = 15000 };
+            _statusTimer.Tick += async (s, e) => await RefreshStatusAsync();
+            _statusTimer.Start();
+            FormClosed += (s, e) => _statusTimer.Dispose();
         }
 
         string ReadDomain(string settingsFile)
@@ -172,8 +174,10 @@ namespace BasaPOS
             catch { return false; }
         }
 
-        bool DistroVhdPresent() =>
-            File.Exists(Path.GetFullPath(Path.Combine(_appDir, "..", "data", "distro", "ext4.vhdx")));
+        bool DistroVhdPresent()
+        {
+            return File.Exists(Path.Combine(Path.GetFullPath(_appDir), "data", "distro", "ext4.vhdx"));
+        }
 
         async Task RefreshStatusAsync()
         {
@@ -239,7 +243,7 @@ namespace BasaPOS
             if (_busy || !File.Exists(_installedMarker)) return;
             SetBusy(true); AppendLog("== " + script + " ==");
             var p = Path.Combine(Path.GetDirectoryName(_appDir)!, "payload", "app", "scripts", script);
-            if (!File.Exists(p)) p = Path.Combine(_appDir, "..", "payload", "install", script);
+            if (!File.Exists(p)) p = Path.Combine(Path.GetFullPath(_appDir), "payload", "install", script);
             await RunProcessAsync("powershell.exe",
                 $"-NoProfile -ExecutionPolicy Bypass -File \"{p}\"",
                 Path.GetDirectoryName(p)!);
@@ -263,12 +267,13 @@ namespace BasaPOS
         {
             if (_busy || !File.Exists(_installedMarker)) return;
             SetBusy(true); AppendLog("== Repair ==");
-            var installRoot = Path.GetFullPath(Path.Combine(_appDir, ".."));
+            var installRoot = Path.GetFullPath(_appDir);
             var install = Path.Combine(installRoot, "payload", "install");
             if (!DistroVhdPresent())
                 await RunProcessAsync("wsl.exe",
                     "--import BasaPOS \"" + Path.Combine(installRoot, "data", "distro") + "\" \"" + Path.Combine(installRoot, "rootfs", "basapos-rootfs.tar.gz") + "\"",
                     _appDir);
+            AppendLog("import step finished (see log above for errors).");
             await RunProcessAsync("powershell.exe",
                 "-NoProfile -ExecutionPolicy Bypass -File \"" + Path.Combine(install, "register-autostart.ps1") + "\" -InstallRoot \"" + installRoot + "\"",
                 install);
