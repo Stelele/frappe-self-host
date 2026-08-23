@@ -22,8 +22,8 @@ function Invoke-SilentSetup([string]$logName) {
   $p = Start-Process -FilePath $SetupExe `
     -ArgumentList '/VERYSILENT','/NORESTART','/SUPPRESSMSGBOXES','/FORCECLOSEAPPLICATIONS',"/LOG=$env:RUNNER_TEMP\$logName" `
     -PassThru
-  # 20 min timeout - bench restore+import can be slow but 70+ min means hung
-  $killed = -not $p.WaitForExit(1200000)
+  # 35 min timeout - upgrade path: backup(1) + import(3) + restore(3) + migrate(1) + shutdown + register + health poll(10) + margin
+  $killed = -not $p.WaitForExit(2100000)
   if ($killed) {
     Write-Host "  [TIMEOUT] setup.exe did not exit in 20 min - killing"
     $p | Stop-Process -Force -ErrorAction SilentlyContinue
