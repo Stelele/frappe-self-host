@@ -866,8 +866,9 @@ namespace BasaPOS
         {
             if (_busy || !File.Exists(_installedMarker)) return;
             SetBusy(true); AppendLog("== " + script + " ==");
-            var p = Path.Combine(Path.GetDirectoryName(_appDir)!, "payload", "app", "scripts", script);
-            if (!File.Exists(p)) p = Path.Combine(Path.GetFullPath(_appDir), "payload", "install", script);
+            var root = Path.GetFullPath(_appDir);
+            var p = Path.Combine(root, "app", "scripts", script);
+            if (!File.Exists(p)) p = Path.Combine(root, "payload", "install", script);
             await RunProcessAsync("powershell.exe",
                 $"-NoProfile -ExecutionPolicy Bypass -File \"{p}\"",
                 Path.GetDirectoryName(p)!);
@@ -939,6 +940,8 @@ git commit -m "feat(launcher): config-driven control panel with repair + credent
 
 Quoting note: `{app}` resolves to `%LOCALAPPDATA%\Programs\BasaPOS` (no spaces), so `[Run]`/`[UninstallRun]` parameter strings need NO inner double quotes.
 
+> ISCC must be >= 6.3 for x64compatible; CI installs current Inno via chocolatey.
+
 - [ ] **Step 1: Write `package/BasaPOS.iss`**
 
 ```ini
@@ -986,7 +989,7 @@ Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: de
 Name: "{userstartup}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: autostart
 
 [Run]
-Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File {app}\payload\install\setup.ps1 -AppDir {app}"; Flags: runhidden waituntilterminated
+Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File {app}\payload\install\setup.ps1 -AppDir {app}"; StatusMsg: "Setting up appliance (several minutes)..."; Flags: runhidden waituntilterminated
 
 [UninstallRun]
 Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File {app}\payload\install\remove-basapos.ps1"; Flags: runhidden; RunOnceId: "BasaPOSCleanup"
@@ -1047,6 +1050,7 @@ $pub = Join-Path $Build 'launcher-publish'
 if ($LASTEXITCODE -ne 0) { throw 'launcher publish failed' }
 
 Write-Host '== 2/4 staging payload =='
+Remove-Item $Payload -Recurse -Force -ErrorAction SilentlyContinue
 foreach ($d in @('rootfs','wsl','install','app')) {
   New-Item -ItemType Directory -Force -Path (Join-Path $Payload $d) | Out-Null
 }

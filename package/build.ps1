@@ -30,6 +30,7 @@ $pub = Join-Path $Build 'launcher-publish'
 if ($LASTEXITCODE -ne 0) { throw 'launcher publish failed' }
 
 Write-Host '== 2/4 staging payload =='
+Remove-Item $Payload -Recurse -Force -ErrorAction SilentlyContinue
 foreach ($d in @('rootfs','wsl','install','app')) {
   New-Item -ItemType Directory -Force -Path (Join-Path $Payload $d) | Out-Null
 }

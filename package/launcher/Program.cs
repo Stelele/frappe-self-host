@@ -242,8 +242,9 @@ namespace BasaPOS
         {
             if (_busy || !File.Exists(_installedMarker)) return;
             SetBusy(true); AppendLog("== " + script + " ==");
-            var p = Path.Combine(Path.GetDirectoryName(_appDir)!, "payload", "app", "scripts", script);
-            if (!File.Exists(p)) p = Path.Combine(Path.GetFullPath(_appDir), "payload", "install", script);
+            var root = Path.GetFullPath(_appDir);
+            var p = Path.Combine(root, "app", "scripts", script);
+            if (!File.Exists(p)) p = Path.Combine(root, "payload", "install", script);
             await RunProcessAsync("powershell.exe",
                 $"-NoProfile -ExecutionPolicy Bypass -File \"{p}\"",
                 Path.GetDirectoryName(p)!);
