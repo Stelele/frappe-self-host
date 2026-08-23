@@ -1398,3 +1398,10 @@ uninstall leaves no hosts entry/task/VHD.
 
 - **Launcher:** `Timer` is ambiguous under ImplicitUsings (WinForms vs System.Threading) → fully qualify `System.Windows.Forms.Timer` (field + ctor).
 - **E2E:** runner WSL may be an older/inbox session where `[boot] systemd=true` isn't applied on first boot → added `wsl --version/--status/--update/--set-default-version 2` diagnostics, a terminate+restart cycle after import, and a hard `PID1 == systemd` assertion before the service poll.
+
+## Revision R3 (2026-08-23) — root cause of e2e systemd failure
+
+`[boot] systemd=true` was silently ignored because the appliance lacked **/sbin/init**
+(WSL execs it as PID1 when systemd is enabled; missing → silent fallback to WSL init).
+Minimal ubuntu strips it and `--no-install-recommends` skips `systemd-sysv`.
+Fix: apt list gains `systemd-sysv`. Also: launcher `FlatStyle.FlatStyle.Flat` → `FlatStyle.Flat` (CS0117).
