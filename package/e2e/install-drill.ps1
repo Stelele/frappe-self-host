@@ -20,7 +20,7 @@ $ping = { (& curl.exe -sk -o NUL -w '%{http_code}' 'https://basapos.local/api/me
 
 function Invoke-SilentSetup([string]$logName) {
   Start-Process -FilePath $SetupExe `
-    -ArgumentList '/VERYSILENT','/NORESTART','/SUPPRESSMSGBOXES',"/LOG=$env:RUNNER_TEMP\$logName" `
+    -ArgumentList '/VERYSILENT','/NORESTART','/SUPPRESSMSGBOXES','/FORCECLOSEAPPLICATIONS',"/LOG=$env:RUNNER_TEMP\$logName" `
     -Wait -PassThru
 }
 
@@ -58,6 +58,11 @@ Check 'boot-wrapper stamps RUNNING' $running
 
 # -------------------------------------------------------- 3 · UPGRADE DRILL
 Write-Host '== 3. upgrade drill (re-run setup) =='
+# Kill anything that could stall Inno's CloseApplications check
+& wsl.exe --shutdown 2>$null
+Get-Process -Name 'wsl','BasaPOS','conhost' -ErrorAction SilentlyContinue |
+  Stop-Process -Force -ErrorAction SilentlyContinue
+Start-Sleep -Seconds 3
 $p2 = Invoke-SilentSetup 'inno-upgrade.log'
 Check "second setup exit 0 (got $($p2.ExitCode))" ($p2.ExitCode -eq 0)
 $backupRoot = "$AppDir\backups\pre-upgrade"

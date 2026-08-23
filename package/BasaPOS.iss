@@ -23,7 +23,7 @@ Compression=lzma2/max
 SolidCompression=yes
 WizardStyle=modern
 RestartApplications=no
-CloseApplications=yes
+CloseApplications=no
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
