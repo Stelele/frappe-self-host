@@ -1,5 +1,5 @@
-# Full uninstall cleanup for BasaPOS appliance. Wired into Inno Setup [UninstallRun].
 param([string]$Distro = "BasaPOS")
+# Full uninstall cleanup for BasaPOS appliance. Wired into Inno Setup [UninstallRun].
 $ErrorActionPreference = "Continue"
 
 Unregister-ScheduledTask -TaskName "BasaPOS-Appliance" -Confirm:$false -ErrorAction SilentlyContinue

@@ -1,6 +1,6 @@
+param()
 # Boot wrapper: scheduled-task ACTION. Boots distro, polls health, stamps status.
 # Status states the launcher reads: STARTING / RUNNING / ERROR_WAKE / ERROR_HEALTH
-param()
 $ErrorActionPreference = "Continue"
 $InstallRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)   # {app}
 $StatusFile = Join-Path $InstallRoot "appliance-status.txt"
