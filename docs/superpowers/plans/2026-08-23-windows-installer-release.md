@@ -893,16 +893,10 @@ namespace BasaPOS
             if (_busy || !File.Exists(_installedMarker)) return;
             SetBusy(true); AppendLog("== Repair ==");
             var installRoot = Path.GetFullPath(_appDir);
-            var install = Path.Combine(installRoot, "payload", "install");
-            if (!DistroVhdPresent())
-                await RunProcessAsync("wsl.exe",
-                    "--import BasaPOS \"" + Path.Combine(installRoot, "data", "distro") + "\" \"" + Path.Combine(installRoot, "rootfs", "basapos-rootfs.tar.gz") + "\"",
-                    _appDir);
-            AppendLog("import step finished (see log above for errors).");
+            var setup = Path.Combine(installRoot, "payload", "install", "setup.ps1");
             await RunProcessAsync("powershell.exe",
-                "-NoProfile -ExecutionPolicy Bypass -File \"" + Path.Combine(install, "register-autostart.ps1") + "\" -InstallRoot \"" + installRoot + "\"",
-                install);
-            await WaitForSiteAsync(TimeSpan.FromMinutes(5));
+                "-NoProfile -ExecutionPolicy Bypass -File \"" + setup + "\" -AppDir \"" + installRoot + "\"",
+                Path.GetDirectoryName(setup)!);
             AppendLog("== Done =="); await RefreshStatusAsync(); SetBusy(false);
         }
 
