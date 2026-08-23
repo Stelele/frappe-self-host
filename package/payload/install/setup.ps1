@@ -13,7 +13,10 @@ param(
   [switch]$Resume,
   [switch]$Upgrade
 )
-$ErrorActionPreference = "Stop"
+# Continue, not Stop: PS 5.1 turns benign native stderr (e.g. WSL's
+# "Failed to start the systemd user session") into terminating errors.
+# Every critical native call below checks $LASTEXITCODE explicitly.
+$ErrorActionPreference = "Continue"
 $InstallRoot = $AppDir
 $PayloadDir = Join-Path $PSScriptRoot ".."
 $RootfsTar = Join-Path $InstallRoot "rootfs\basapos-rootfs.tar.gz"

@@ -81,7 +81,11 @@ if ($unins) {
   $p3 = Start-Process -FilePath $unins.FullName -ArgumentList '/SILENT','/SUPPRESSMSGBOXES' -Wait -PassThru
   Start-Sleep -Seconds 5
 }
+$taskAfter = $null
+$oldEap = $ErrorActionPreference
+$ErrorActionPreference = 'Continue'
 $taskAfter = (schtasks /query /tn BasaPOS-Appliance 2>&1) -join ''
+$ErrorActionPreference = $oldEap
 Check 'autostart task removed' (-not ("$taskAfter" -match 'BasaPOS-Appliance'))
 Check 'hosts entry removed' (-not (Select-String -Path $HostsFile -Pattern 'basapos\.local' -Quiet))
 Check 'VHD removed' (-not (Test-Path "$AppDir\data\distro\ext4.vhdx"))

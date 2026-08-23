@@ -2,7 +2,8 @@ param(
   [string]$Distro = "BasaPOS",
   [string]$Site = "basapos.local"
 )
-$ErrorActionPreference = "Stop"
+# Continue: PS 5.1 turns benign WSL stderr warnings into terminating errors.
+$ErrorActionPreference = "Continue"
 
 $AppDir = Split-Path -Parent $PSScriptRoot
 $Base = Split-Path -Parent $AppDir

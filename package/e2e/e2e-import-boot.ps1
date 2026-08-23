@@ -58,6 +58,15 @@ while ((Get-Date) -lt $deadline) {
   Start-Sleep -Seconds 10
 }
 Check 'all 8 services active' $allActive
+if (-not $allActive) {
+  Write-Host '--- per-unit state at timeout ---'
+  foreach ($u in ($services -split ' ')) {
+    $s = wsl -d $Distro -u root -- bash -c "systemctl is-active $u" 2>$null
+    Write-Host ("  {0}: {1}" -f $u, "$s".Trim())
+  }
+  Write-Host '--- journal tail (failed units) ---'
+  wsl -d $Distro -u root -- bash -c "journalctl -b --no-pager -p err -n 40 2>/dev/null || journalctl -b --no-pager -n 40" | Select-Object -Last 25
+}
 
 Write-Host '== site health (inside distro) =='
 $out = wsl -d $Distro -u root -- bash -c "curl -sk -o /dev/null -w '%{http_code}' https://basapos.local/api/method/ping"

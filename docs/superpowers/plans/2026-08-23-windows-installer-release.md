@@ -1405,3 +1405,12 @@ uninstall leaves no hosts entry/task/VHD.
 (WSL execs it as PID1 when systemd is enabled; missing → silent fallback to WSL init).
 Minimal ubuntu strips it and `--no-install-recommends` skips `systemd-sysv`.
 Fix: apt list gains `systemd-sysv`. Also: launcher `FlatStyle.FlatStyle.Flat` → `FlatStyle.Flat` (CS0117).
+
+## Revision R4 (2026-08-23) — installer drill findings
+
+Added `install-drill` CI job (silent install → wrapper → upgrade drill → uninstall).
+First run exposed: PS 5.1 converts benign WSL stderr ("Failed to start the systemd
+user session") into terminating errors under EAP=Stop — aborted setup mid-flight even
+though the site came up. Fix: `setup.ps1`/`backup.ps1` run EAP=Continue with explicit
+`$LASTEXITCODE` checks; drill's schtasks query guards EAP around `2>&1`; e2e dumps
+per-unit state + journal tail on service-poll timeout.
