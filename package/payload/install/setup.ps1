@@ -104,7 +104,7 @@ function New-Credentials {
   }
   # ALWAYS sync the appliance password to whatever the file says (covers repair:
   # freshly imported image ships a throwaway pw)
-  $pw = (Get-Content $CredsFile | Where-Object { $_ -match '^password=' }) -replace '^password=', ''
+  $pw = Get-Content $CredsFile | Where-Object { $_ -match '^password=' } | ForEach-Object { $_.Substring(9).Trim() } | Select-Object -First 1
   if (-not $pw) { throw "credentials.txt missing password line" }
   & wsl.exe -d $script:Distro -u frappe -- bash -c "cd /home/frappe/bench && bench --site basapos.local set-admin-password '$pw'" | Out-Host
   if ($LASTEXITCODE -ne 0) { throw "set-admin-password failed" }
@@ -135,8 +135,9 @@ function Restore-LatestBackup {
   $sql = Get-ChildItem $Dest -Filter "*.sql.gz" | Sort-Object Name | Select-Object -Last 1
   if (-not $sql) { throw "no sql backup found in $Dest" }
   $inSql = Convert-ToWslPath $sql.FullName
-  $files = Get-ChildItem $Dest -Filter "*-files-*.tar" | Sort-Object Name | Select-Object -Last 1
-  $priv  = Get-ChildItem $Dest -Filter "*-private-files-*.tar" | Sort-Object Name | Select-Object -Last 1
+  $tars  = @(Get-ChildItem $Dest -Filter "*.tar")
+  $priv  = $tars | Where-Object { $_.Name -match '-private-files\.tar$' } | Select-Object -Last 1
+  $files = $tars | Where-Object { $_.Name -notmatch '-private-files\.tar$' } | Select-Object -Last 1
   $cmd = "cd /home/frappe/bench && bench --site basapos.local --force restore '$inSql'"
   if ($files) { $cmd += " --with-public-files '" + (Convert-ToWslPath $files.FullName) + "'" }
   if ($priv)  { $cmd += " --with-private-files '" + (Convert-ToWslPath $priv.FullName) + "'" }
@@ -198,6 +199,7 @@ try {
   & wsl.exe --shutdown 2>$null
 
   & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "register-autostart.ps1") -InstallRoot $InstallRoot | Out-Host
+  if ($LASTEXITCODE -ne 0) { Write-BasaLog "WARN: register-autostart exit $LASTEXITCODE" }
 
   $url = Get-SiteUrl
   Write-BasaLog "waiting for $url ..."
