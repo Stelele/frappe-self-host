@@ -93,15 +93,20 @@ function Ensure-WslConfig {
 }
 
 function New-Credentials {
-  # fresh installs only; upgrades keep existing creds via restore
-  if (Test-Path $CredsFile) { Write-BasaLog "credentials exist -- keeping"; return }
-  $bytes = New-Object byte[] 16
-  [System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($bytes)
-  $pw = ([convert]::ToBase64String($bytes) -replace '[+/=]', '').Substring(0, 16)
-  Set-Content -Path $CredsFile -Value "user=$($script:Distro)`nadmin_user=Administrator`npassword=$pw" -Encoding ascii
-  icacls $CredsFile /inheritance:r /grant:r "$env:USERNAME`:F" | Out-Null
-  Write-BasaLog "generated admin password -> config\credentials.txt"
-  & wsl.exe -d $script:Distro -u frappe -- bash -c "cd /home/frappe/bench && bench --site basapos.local set-admin-password '$pw'"
+  $existing = Test-Path $CredsFile
+  if (-not $existing) {
+    $bytes = New-Object byte[] 16
+    [System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($bytes)
+    $pw = ([convert]::ToBase64String($bytes) -replace '[+/=]', '').Substring(0, 16)
+    Set-Content -Path $CredsFile -Value "user=$($script:Distro)`nadmin_user=Administrator`npassword=$pw" -Encoding ascii
+    icacls $CredsFile /inheritance:r /grant:r "$env:USERNAME`:F" | Out-Null
+    Write-BasaLog "generated admin password -> config\credentials.txt"
+  }
+  # ALWAYS sync the appliance password to whatever the file says (covers repair:
+  # freshly imported image ships a throwaway pw)
+  $pw = (Get-Content $CredsFile | Where-Object { $_ -match '^password=' }) -replace '^password=', ''
+  if (-not $pw) { throw "credentials.txt missing password line" }
+  & wsl.exe -d $script:Distro -u frappe -- bash -c "cd /home/frappe/bench && bench --site basapos.local set-admin-password '$pw'" | Out-Host
   if ($LASTEXITCODE -ne 0) { throw "set-admin-password failed" }
 }
 
@@ -110,7 +115,7 @@ function Backup-SiteForUpgrade {
   $ts = Get-Date -Format "yyyyMMdd_HHmmss"
   $dest = Join-Path $InstallRoot "backups\pre-upgrade\$ts"
   New-Item -ItemType Directory -Force -Path $dest | Out-Null
-  & wsl.exe -d $script:Distro -u frappe -- bash -c "cd /home/frappe/bench && bench --site basapos.local backup --with-files --backup-path /home/frappe/bench/backups/$ts"
+  & wsl.exe -d $script:Distro -u frappe -- bash -c "cd /home/frappe/bench && bench --site basapos.local backup --with-files --backup-path /home/frappe/bench/backups/$ts" | Out-Host
   if ($LASTEXITCODE -ne 0) { throw "pre-upgrade bench backup failed" }
   Copy-Item "\\wsl$\$script:Distro\home\frappe\bench\backups\$ts\*" $dest -Recurse -Force
   Write-BasaLog "backup at $dest"
@@ -127,16 +132,17 @@ function Convert-ToWslPath([string]$WinPath) {
 function Restore-LatestBackup {
   param([string]$Dest)
   Write-BasaLog "restoring pre-upgrade backup"
-  $files = Get-ChildItem $Dest -Filter "*.sql.gz" | Sort-Object Name
-  if (-not $files) { throw "no sql backup found in $Dest" }
-  $inWsl = Convert-ToWslPath $files[-1].FullName
-  & wsl.exe -d $script:Distro -u frappe -- bash -c "cd /home/frappe/bench && bench --site basapos.local --force restore '$inWsl'"
+  $sql = Get-ChildItem $Dest -Filter "*.sql.gz" | Sort-Object Name | Select-Object -Last 1
+  if (-not $sql) { throw "no sql backup found in $Dest" }
+  $inSql = Convert-ToWslPath $sql.FullName
+  $files = Get-ChildItem $Dest -Filter "*-files-*.tar" | Sort-Object Name | Select-Object -Last 1
+  $priv  = Get-ChildItem $Dest -Filter "*-private-files-*.tar" | Sort-Object Name | Select-Object -Last 1
+  $cmd = "cd /home/frappe/bench && bench --site basapos.local --force restore '$inSql'"
+  if ($files) { $cmd += " --with-public-files '" + (Convert-ToWslPath $files.FullName) + "'" }
+  if ($priv)  { $cmd += " --with-private-files '" + (Convert-ToWslPath $priv.FullName) + "'" }
+  & wsl.exe -d $script:Distro -u frappe -- bash -c $cmd | Out-Host
   if ($LASTEXITCODE -ne 0) { throw "restore failed" }
-  Get-ChildItem $Dest -Filter "*.tar" | ForEach-Object {
-    $tarInWsl = Convert-ToWslPath $_.FullName
-    & wsl.exe -d $script:Distro -u frappe -- bash -c "cd /home/frappe/bench && bench --site basapos.local restore-files --with-private-files '$tarInWsl'"
-  }
-  & wsl.exe -d $script:Distro -u frappe -- bash -c "cd /home/frappe/bench && bench --site basapos.local migrate && bench --site basapos.local clear-cache"
+  & wsl.exe -d $script:Distro -u frappe -- bash -c "cd /home/frappe/bench && bench --site basapos.local migrate && bench --site basapos.local clear-cache" | Out-Host
   if ($LASTEXITCODE -ne 0) { throw "post-restore migrate failed" }
   Write-BasaLog "restore complete"
 }
@@ -155,6 +161,13 @@ function Register-ResumeTask {
 # ---------------- main flow ----------------
 $isUpgrade = $Upgrade -or ((Test-Path $InstalledMarker) -and (Test-DistroPresent -InstallRoot $InstallRoot))
 
+if ($Resume -and (Test-Path $InstalledMarker) -and (Test-Path $StatusFile) -and
+    ((Get-Content $StatusFile -ErrorAction SilentlyContinue) -match 'SETUP_COMPLETE')) {
+  Write-BasaLog "setup already complete; nothing to resume"
+  Unregister-ScheduledTask -TaskName $ResumeTask -Confirm:$false -ErrorAction SilentlyContinue
+  exit 0
+}
+
 if (-not $Resume) {
   Enable-WslFeatures
   if (-not (Test-WslInstalled)) { Install-WslMsi }
@@ -167,35 +180,43 @@ if (Test-RebootPending) {
   exit 0
 }
 
-$backupDest = $null
-if ($isUpgrade -and (Test-DistroPresent -InstallRoot $InstallRoot)) {
-  try { $backupDest = Backup-SiteForUpgrade } catch { Write-BasaLog "FATAL: $($_.Exception.Message)"; Set-SetupStatus "ERROR_BACKUP"; exit 1 }
-  & wsl.exe --unregister $script:Distro 2>$null
-  Import-RootfsIfNeeded -Force
-  Restore-LatestBackup -Dest $backupDest
-} else {
-  Import-RootfsIfNeeded
-  New-Credentials
+try {
+  $backupDest = $null
+  if ($isUpgrade -and (Test-DistroPresent -InstallRoot $InstallRoot)) {
+    try { $backupDest = Backup-SiteForUpgrade } catch { Write-BasaLog "FATAL: $($_.Exception.Message)"; Set-SetupStatus "ERROR_BACKUP"; exit 1 }
+    & wsl.exe --unregister $script:Distro 2>$null
+    if ($LASTEXITCODE -ne 0) { Write-BasaLog "WARN: unregister exit $LASTEXITCODE (continuing)" }
+    Import-RootfsIfNeeded -Force
+    Restore-LatestBackup -Dest $backupDest
+  } else {
+    Import-RootfsIfNeeded
+    New-Credentials
+  }
+
+  Ensure-HostsEntry
+  Ensure-WslConfig
+  & wsl.exe --shutdown 2>$null
+
+  & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "register-autostart.ps1") -InstallRoot $InstallRoot | Out-Host
+
+  $url = Get-SiteUrl
+  Write-BasaLog "waiting for $url ..."
+  $deadline = (Get-Date).AddMinutes(10)
+  $online = $false
+  while ((Get-Date) -lt $deadline) {
+    if (Test-DistroPresent) { & wsl.exe -d $script:Distro -u root --exec /bin/true 2>$null }
+    if (Test-SiteOnline -Url $url) { $online = $true; break }
+    Start-Sleep -Seconds 10
+  }
+  if ($online) { Write-BasaLog "site online" } else { Write-BasaLog "WARN: site not yet online; autostart will finish booting" }
+
+  New-Item -ItemType File -Path $InstalledMarker -Force | Out-Null
+  if ($online) { Set-SetupStatus "SETUP_COMPLETE" }
+  else { Set-SetupStatus "SETUP_COMPLETE_DEGRADED" }
+  Unregister-ScheduledTask -TaskName $ResumeTask -Confirm:$false -ErrorAction SilentlyContinue
+  Write-BasaLog "==== setup complete ===="
+} catch {
+  Write-BasaLog "FATAL: $($_.Exception.Message)"
+  Set-SetupStatus ("ERROR: " + $_.Exception.Message)
+  exit 1
 }
-
-Ensure-HostsEntry
-Ensure-WslConfig
-& wsl.exe --shutdown 2>$null
-
-& powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "register-autostart.ps1") -InstallRoot $InstallRoot
-
-$url = Get-SiteUrl
-Write-BasaLog "waiting for $url ..."
-$deadline = (Get-Date).AddMinutes(10)
-$online = $false
-while ((Get-Date) -lt $deadline) {
-  if (Test-DistroPresent) { & wsl.exe -d $script:Distro -u root --exec /bin/true 2>$null }
-  if (Test-SiteOnline -Url $url) { $online = $true; break }
-  Start-Sleep -Seconds 10
-}
-if ($online) { Write-BasaLog "site online" } else { Write-BasaLog "WARN: site not yet online; autostart will finish booting" }
-
-New-Item -ItemType File -Path $InstalledMarker -Force | Out-Null
-if ($online) { Set-SetupStatus "SETUP_COMPLETE" }
-else { Set-SetupStatus "SETUP_COMPLETE_DEGRADED" }
-Write-BasaLog "==== setup complete ===="

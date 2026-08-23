@@ -527,16 +527,17 @@ function Convert-ToWslPath([string]$WinPath) {
 function Restore-LatestBackup {
   param([string]$Dest)
   Write-BasaLog "restoring pre-upgrade backup"
-  $files = Get-ChildItem $Dest -Filter "*.sql.gz" | Sort-Object Name
-  if (-not $files) { throw "no sql backup found in $Dest" }
-  $inWsl = Convert-ToWslPath $files[-1].FullName
-  & wsl.exe -d $script:Distro -u frappe -- bash -c "cd /home/frappe/bench && bench --site basapos.local --force restore '$inWsl'"
+  $sql = Get-ChildItem $Dest -Filter "*.sql.gz" | Sort-Object Name | Select-Object -Last 1
+  if (-not $sql) { throw "no sql backup found in $Dest" }
+  $inSql = Convert-ToWslPath $sql.FullName
+  $files = Get-ChildItem $Dest -Filter "*-files-*.tar" | Sort-Object Name | Select-Object -Last 1
+  $priv  = Get-ChildItem $Dest -Filter "*-private-files-*.tar" | Sort-Object Name | Select-Object -Last 1
+  $cmd = "cd /home/frappe/bench && bench --site basapos.local --force restore '$inSql'"
+  if ($files) { $cmd += " --with-public-files '" + (Convert-ToWslPath $files.FullName) + "'" }
+  if ($priv)  { $cmd += " --with-private-files '" + (Convert-ToWslPath $priv.FullName) + "'" }
+  & wsl.exe -d $script:Distro -u frappe -- bash -c $cmd | Out-Host
   if ($LASTEXITCODE -ne 0) { throw "restore failed" }
-  Get-ChildItem $Dest -Filter "*.tar" | ForEach-Object {
-    $tarInWsl = Convert-ToWslPath $_.FullName
-    & wsl.exe -d $script:Distro -u frappe -- bash -c "cd /home/frappe/bench && bench --site basapos.local restore-files --with-private-files '$tarInWsl'"
-  }
-  & wsl.exe -d $script:Distro -u frappe -- bash -c "cd /home/frappe/bench && bench --site basapos.local migrate && bench --site basapos.local clear-cache"
+  & wsl.exe -d $script:Distro -u frappe -- bash -c "cd /home/frappe/bench && bench --site basapos.local migrate && bench --site basapos.local clear-cache" | Out-Host
   if ($LASTEXITCODE -ne 0) { throw "post-restore migrate failed" }
   Write-BasaLog "restore complete"
 }
