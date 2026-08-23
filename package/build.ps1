@@ -56,7 +56,7 @@ if (-not ($IsccPath -and (Test-Path $IsccPath))) { throw 'ISCC.exe not found; pa
 Write-Host '== 4/4 compiling installer =='
 Push-Location $Pkg
 try {
-  & $IsccPath '/DMyAppVersion=$Version' (Join-Path $Pkg 'BasaPOS.iss')
+  & $IsccPath "/DMyAppVersion=$Version" (Join-Path $Pkg 'BasaPOS.iss')
   if ($LASTEXITCODE -ne 0) { throw "ISCC failed (exit $LASTEXITCODE)" }
 } finally { Pop-Location }
 
