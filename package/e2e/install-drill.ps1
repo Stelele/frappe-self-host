@@ -19,9 +19,24 @@ $HostsFile = "$env:SystemRoot\System32\drivers\etc\hosts"
 $ping = { (& curl.exe -sk -o NUL -w '%{http_code}' 'https://basapos.local/api/method/ping' 2>$null) }
 
 function Invoke-SilentSetup([string]$logName) {
-  Start-Process -FilePath $SetupExe `
+  $p = Start-Process -FilePath $SetupExe `
     -ArgumentList '/VERYSILENT','/NORESTART','/SUPPRESSMSGBOXES','/FORCECLOSEAPPLICATIONS',"/LOG=$env:RUNNER_TEMP\$logName" `
-    -Wait -PassThru
+    -PassThru
+  # 20 min timeout — bench restore+import can be slow but 70+ min means hung
+  $killed = -not $p.WaitForExit(1200000)
+  if ($killed) {
+    Write-Host "  [TIMEOUT] setup.exe did not exit in 20 min — killing"
+    $p | Stop-Process -Force -ErrorAction SilentlyContinue
+    Start-Sleep 2
+  }
+  # Dump diagnostic context regardless of outcome
+  Write-Host '--- setup-status.txt ---'
+  Get-Content "$AppDir\setup-status.txt" -ErrorAction SilentlyContinue | Select-Object -Last 5
+  Write-Host '--- setup.log (tail) ---'
+  Get-Content "$AppDir\logs\setup.log" -ErrorAction SilentlyContinue | Select-Object -Last 30
+  Write-Host '--- inno log (tail) ---'
+  Get-Content "$env:RUNNER_TEMP\$logName" -ErrorAction SilentlyContinue | Select-Object -Last 20
+  return $p
 }
 
 # ---------------------------------------------------------------- 1 · INSTALL
