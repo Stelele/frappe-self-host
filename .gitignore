@@ -18,3 +18,7 @@ certs/
 
 # Appliance build artifacts
 appliance/dist/
+
+# Installer assembly inputs/outputs
+package/payload/wsl/*.msi
+package/build/
