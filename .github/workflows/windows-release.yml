@@ -87,3 +87,34 @@ jobs:
       - name: WSL2 import + boot + health E2E
         shell: pwsh
         run: powershell -NoProfile -ExecutionPolicy Bypass -File package/e2e/e2e-import-boot.ps1 -RootfsTar appliance/dist/basapos-rootfs.tar.gz
+
+  install-drill:
+    needs: installer
+    runs-on: windows-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: BasaPOS-Setup
+          path: setup-output
+
+      - name: Installer drill (install / wrapper / upgrade / uninstall)
+        shell: pwsh
+        run: |
+          $exe = Get-ChildItem setup-output -Filter 'BasaPOS-Setup-*.exe' | Select-Object -First 1
+          if (-not $exe) { throw 'Setup exe not found in artifact' }
+          Write-Host "Drilling $($exe.Name)"
+          powershell -NoProfile -ExecutionPolicy Bypass -File package/e2e/install-drill.ps1 -SetupExe $exe.FullName
+
+      - name: Upload drill logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: install-drill-logs
+          path: |
+            ${{ runner.temp }}/inno-install.log
+            ${{ runner.temp }}/inno-upgrade.log
+            %LOCALAPPDATA%/Programs/BasaPOS/logs/**
+          if-no-files-found: ignore
