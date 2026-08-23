@@ -112,7 +112,7 @@ Check 'VHD removed' (-not (Test-Path "$AppDir\data\distro\ext4.vhdx"))
 
 Write-Host ''
 if ($script:fail -gt 0) {
-  Write-Host "INSTALL DRILL FAILED ($script:fail checks)"
+  Write-Host "INSTALL DRILL FAILED - $script:fail checks"
   exit 1
 }
 Write-Host 'INSTALL DRILL PASSED'
