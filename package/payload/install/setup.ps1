@@ -71,8 +71,18 @@ function Import-RootfsIfNeeded {
   if ($freeGB -lt $RequiredFreeGB) { throw "only $freeGB GB free; need ~$RequiredFreeGB GB" }
   New-Item -ItemType Directory -Force -Path $DistroDir | Out-Null
   Write-BasaLog "importing appliance rootfs (minutes)..."
-  & wsl.exe --import $script:Distro $DistroDir $RootfsTar 2>$null | Out-Null
-  if ($LASTEXITCODE -ne 0) { throw "wsl --import failed (exit $LASTEXITCODE)" }
+  $importProc = Start-Process wsl.exe -ArgumentList "--import $script:Distro `"$DistroDir`" `"$RootfsTar`"" -NoNewWindow -PassThru -RedirectStandardError "$env:TEMP\wsl-import-err.txt"
+  $importTimeout = 600
+  $sw = [System.Diagnostics.Stopwatch]::StartNew()
+  while (-not $importProc.HasExited -and $sw.Elapsed.TotalSeconds -lt $importTimeout) {
+    Start-Sleep -Seconds 10
+  }
+  if (-not $importProc.HasExited) {
+    Write-BasaLog "FATAL: wsl --import timed out after ${importTimeout}s"
+    $importProc.Kill()
+    throw "wsl --import timed out"
+  }
+  if ($importProc.ExitCode -ne 0) { throw "wsl --import failed (exit $($importProc.ExitCode))" }
   $deadline = (Get-Date).AddSeconds(60)
   while (-not (Test-DistroPresent) -and (Get-Date) -lt $deadline) { Start-Sleep -Seconds 3 }
   if (-not (Test-DistroPresent)) { throw "distro not listed after import" }
@@ -208,9 +218,24 @@ try {
     [System.IO.File]::AppendAllText($DebugFile, "$(Get-Date) PATH: entering UPGRADE path`n")
     try { $backupDest = Backup-SiteForUpgrade } catch { Write-BasaLog "FATAL: $($_.Exception.Message)"; Set-SetupStatus "ERROR_BACKUP"; exit 1 }
     [System.IO.File]::AppendAllText($DebugFile, "$(Get-Date) PATH: backup done dest=$backupDest`n")
-    & wsl.exe --unregister $script:Distro 2>$null
-    if ($LASTEXITCODE -ne 0) { Write-BasaLog "WARN: unregister exit $LASTEXITCODE (continuing)" }
+
+    [System.IO.File]::AppendAllText($DebugFile, "$(Get-Date) PATH: unregistering distro`n")
+    $unregProc = Start-Process wsl.exe -ArgumentList "--unregister $script:Distro" -NoNewWindow -PassThru -RedirectStandardError "$env:TEMP\wsl-unreg-err.txt"
+    $unregTimeout = 120
+    $sw = [System.Diagnostics.Stopwatch]::StartNew()
+    while (-not $unregProc.HasExited -and $sw.Elapsed.TotalSeconds -lt $unregTimeout) {
+      Start-Sleep -Seconds 3
+    }
+    if (-not $unregProc.HasExited) {
+      [System.IO.File]::AppendAllText($DebugFile, "$(Get-Date) PATH: unregister TIMED OUT after ${unregTimeout}s, killing`n")
+      $unregProc.Kill()
+    }
+    [System.IO.File]::AppendAllText($DebugFile, "$(Get-Date) PATH: unregister exit $($unregProc.ExitCode)`n")
+    if ($unregProc.ExitCode -ne 0) { Write-BasaLog "WARN: unregister exit $($unregProc.ExitCode) (continuing)" }
+
+    [System.IO.File]::AppendAllText($DebugFile, "$(Get-Date) PATH: importing rootfs`n")
     Import-RootfsIfNeeded -Force
+    [System.IO.File]::AppendAllText($DebugFile, "$(Get-Date) PATH: rootfs imported, restoring backup`n")
     Restore-LatestBackup -Dest $backupDest
   } else {
     [System.IO.File]::AppendAllText($DebugFile, "$(Get-Date) PATH: entering FRESH install path`n")
