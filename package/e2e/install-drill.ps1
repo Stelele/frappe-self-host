@@ -31,12 +31,7 @@ function Invoke-SilentSetup([string]$logName) {
   }
   # Dump diagnostic context regardless of outcome
   Write-Host '--- setup-status.txt ---'
-  if (Test-Path "$AppDir\setup-status.txt") {
-    $raw = [System.IO.File]::ReadAllBytes("$AppDir\setup-status.txt")
-    Write-Host "  exists, $($raw.Length) bytes"
-    Write-Host "  hex: $([BitConverter]::ToString($raw[0..([math]::Min(99,$raw.Length-1))]))"
-    Write-Host "  text: $([System.IO.File]::ReadAllText("$AppDir\setup-status.txt"))"
-  } else { Write-Host '  FILE NOT FOUND' }
+  Get-Content "$AppDir\setup-status.txt" -ErrorAction SilentlyContinue | Select-Object -Last 5
   Write-Host '--- setup.log (tail) ---'
   Get-Content "$AppDir\logs\setup.log" -ErrorAction SilentlyContinue | Select-Object -Last 30
   Write-Host '--- inno log (tail) ---'
@@ -61,11 +56,6 @@ Check 'credentials generated (16-char pw)' (($creds -join "`n") -match 'password
 $code = & $ping
 Check "site responds 200 from host (got $code)" ("$code" -eq '200')
 $pwBefore = ($creds | Select-String '^password=').Line
-# Diagnostic: show what's in the data directory after first install
-Write-Host '  [DIAG] data dir contents:'
-Get-ChildItem "$AppDir\data" -Recurse -ErrorAction SilentlyContinue | ForEach-Object {
-  Write-Host "    $($_.FullName) ($($_.Length) bytes)"
-}
 
 # ------------------------------------------------------ 2 - AUTOSTART WRAPPER
 Write-Host '== 2. autostart wrapper reaches RUNNING =='
@@ -83,13 +73,6 @@ Check 'boot-wrapper stamps RUNNING' $running
 
 # -------------------------------------------------------- 3 - UPGRADE DRILL
 Write-Host '== 3. upgrade drill (re-run setup) =='
-# Diagnostic: verify the state that setup.ps1 uses for upgrade detection
-$vhdPath = "$AppDir\data\distro\ext4.vhdx"
-$markerPath = "$AppDir\installed.txt"
-Write-Host "  [DIAG] AppDir=$AppDir"
-Write-Host "  [DIAG] installed.txt exists=$(Test-Path $markerPath)"
-Write-Host "  [DIAG] ext4.vhdx exists=$(Test-Path $vhdPath)"
-Write-Host "  [DIAG] ext4.vhdx size=$((Get-Item $vhdPath -ErrorAction SilentlyContinue).Length)"
 # Kill anything that could stall Inno's CloseApplications check
 $oldEap = $ErrorActionPreference
 $ErrorActionPreference = 'Continue'
@@ -110,13 +93,6 @@ $status2 = (Get-Content "$AppDir\setup-status.txt") -join ''
 Check 'post-upgrade SETUP_COMPLETE' ("$status2" -match '^SETUP_COMPLETE')
 $code2 = & $ping
 Check "site responds 200 post-upgrade (got $code2)" ("$code2" -eq '200')
-Write-Host '--- post-upgrade setup-status.txt (all lines) ---'
-if (Test-Path "$AppDir\setup-status.txt") {
-  $raw2 = [System.IO.File]::ReadAllBytes("$AppDir\setup-status.txt")
-  Write-Host "  exists, $($raw2.Length) bytes"
-  Write-Host "  hex: $([BitConverter]::ToString($raw2[0..([math]::Min(99,$raw2.Length-1))]))"
-  Write-Host "  text: $([System.IO.File]::ReadAllText("$AppDir\setup-status.txt"))"
-} else { Write-Host '  FILE NOT FOUND' }
 
 # ------------------------------------------------------------ 4 - UNINSTALL
 Write-Host '== 4. silent uninstall =='

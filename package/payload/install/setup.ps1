@@ -31,12 +31,10 @@ $RequiredFreeGB = 12
 
 New-Item -ItemType Directory -Force -Path $ConfigDir, (Join-Path $InstallRoot "logs") | Out-Null
 $env:BASA_LOG_FILE = Join-Path $InstallRoot "logs\setup.log"
-# Write diagnostics as extra lines in the status file itself.
-# The ISS [Code] section only reads line 1, so extra lines are safe.
-# This approach works because setup-status.txt IS successfully written/read.
+# Clear stale status so Inno Setup's polling loop doesn't exit on a
+# leftover SETUP_COMPLETE from a previous run.
 $StatusFile = Join-Path $InstallRoot "setup-status.txt"
-"BOOT $(Get-Date) AppDir=$AppDir PSScriptRoot=$PSScriptRoot InstallRoot=$InstallRoot TEMP=$env:TEMP" |
-  Out-File $StatusFile -Encoding ascii -Force
+Remove-Item $StatusFile -Force -ErrorAction SilentlyContinue
 # Clear stale status so Inno Setup's polling loop doesn't exit on a
 # leftover SETUP_COMPLETE from a previous run.
 Remove-Item $StatusFile -Force -ErrorAction SilentlyContinue
@@ -172,11 +170,7 @@ function Register-ResumeTask {
 }
 
 # ---------------- main flow ----------------
-$vhdPath = Join-Path $InstallRoot "data\distro\ext4.vhdx"
-$vhdExists = Test-Path $vhdPath
-$isUpgrade = $Upgrade -or ((Test-Path $InstalledMarker) -and $vhdExists)
-"MAIN Upgrade=$Upgrade InstalledMarker=$(Test-Path $InstalledMarker) vhdPath=$vhdPath vhdExists=$vhdExists isUpgrade=$isUpgrade" |
-  Out-File $StatusFile -Encoding ascii -Append
+$isUpgrade = $Upgrade -or ((Test-Path $InstalledMarker) -and (Test-DistroPresent -InstallRoot $InstallRoot))
 
 if ($Resume -and (Test-Path $InstalledMarker) -and (Test-Path $StatusFile) -and
     ((Get-Content $StatusFile -ErrorAction SilentlyContinue) -match 'SETUP_COMPLETE')) {
@@ -199,16 +193,13 @@ if (Test-RebootPending) {
 
 try {
   $backupDest = $null
-  if ($isUpgrade -and $vhdExists) {
-    "UPGRADE entering upgrade path" | Out-File $StatusFile -Encoding ascii -Append
+  if ($isUpgrade -and (Test-DistroPresent -InstallRoot $InstallRoot)) {
     try { $backupDest = Backup-SiteForUpgrade } catch { Write-BasaLog "FATAL: $($_.Exception.Message)"; Set-SetupStatus "ERROR_BACKUP"; exit 1 }
-    "UPGRADE backup done dest=$backupDest" | Out-File $StatusFile -Encoding ascii -Append
     & wsl.exe --unregister $script:Distro 2>$null
     if ($LASTEXITCODE -ne 0) { Write-BasaLog "WARN: unregister exit $LASTEXITCODE (continuing)" }
     Import-RootfsIfNeeded -Force
     Restore-LatestBackup -Dest $backupDest
   } else {
-    "FRESH entering fresh install path" | Out-File $StatusFile -Encoding ascii -Append
     Import-RootfsIfNeeded
     New-Credentials
   }

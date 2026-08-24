@@ -73,14 +73,19 @@ var
   ResultCode: Integer;
   Status: String;
   I: Integer;
+  IsUpgrade: Boolean;
+  PsArgs: String;
 begin
   if CurStep = ssPostInstall then
   begin
-    Exec('powershell.exe',
-      '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' +
+    IsUpgrade := FileExists(ExpandConstant('{app}\installed.txt'));
+    PsArgs := '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' +
       ExpandConstant('{app}\payload\install\setup.ps1') + '" -AppDir "' +
-      ExpandConstant('{app}') + '"',
-      '', SW_HIDE, ewNoWait, ResultCode);
+      ExpandConstant('{app}') + '"';
+    if IsUpgrade then
+      PsArgs := PsArgs + ' -Upgrade';
+
+    Exec('powershell.exe', PsArgs, '', SW_HIDE, ewNoWait, ResultCode);
 
     { Poll status file for a terminal state (max ~17 min = 200 * 5s). }
     for I := 1 to 200 do
