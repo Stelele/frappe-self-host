@@ -170,8 +170,14 @@ function Register-ResumeTask {
 }
 
 # ---------------- main flow ----------------
+# Auto-detect upgrade: if installed.txt exists, this is an upgrade regardless
+# of what the ISS passes.  The ISS [Code] section's FileExists check may not
+# work in all elevated contexts.
+if (-not $Upgrade -and (Test-Path $InstalledMarker)) {
+  Write-BasaLog "auto-detected upgrade (installed.txt exists)"
+  $Upgrade = $true
+}
 $isUpgrade = $Upgrade -or ((Test-Path $InstalledMarker) -and (Test-DistroPresent -InstallRoot $InstallRoot))
-Write-BasaLog "DIAG: Upgrade=$Upgrade InstalledMarker=$(Test-Path $InstalledMarker) DistroPresent=$(Test-DistroPresent -InstallRoot $InstallRoot) isUpgrade=$isUpgrade AppDir=$AppDir"
 
 if ($Resume -and (Test-Path $InstalledMarker) -and (Test-Path $StatusFile) -and
     ((Get-Content $StatusFile -ErrorAction SilentlyContinue) -match 'SETUP_COMPLETE')) {
