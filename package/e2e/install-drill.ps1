@@ -31,7 +31,12 @@ function Invoke-SilentSetup([string]$logName) {
   }
   # Dump diagnostic context regardless of outcome
   Write-Host '--- setup-status.txt ---'
-  Get-Content "$AppDir\setup-status.txt" -ErrorAction SilentlyContinue
+  if (Test-Path "$AppDir\setup-status.txt") {
+    $raw = [System.IO.File]::ReadAllBytes("$AppDir\setup-status.txt")
+    Write-Host "  exists, $($raw.Length) bytes"
+    Write-Host "  hex: $([BitConverter]::ToString($raw[0..([math]::Min(99,$raw.Length-1))]))"
+    Write-Host "  text: $([System.IO.File]::ReadAllText("$AppDir\setup-status.txt"))"
+  } else { Write-Host '  FILE NOT FOUND' }
   Write-Host '--- setup.log (tail) ---'
   Get-Content "$AppDir\logs\setup.log" -ErrorAction SilentlyContinue | Select-Object -Last 30
   Write-Host '--- inno log (tail) ---'
@@ -94,7 +99,12 @@ Check 'post-upgrade SETUP_COMPLETE' ("$status2" -match '^SETUP_COMPLETE')
 $code2 = & $ping
 Check "site responds 200 post-upgrade (got $code2)" ("$code2" -eq '200')
 Write-Host '--- post-upgrade setup-status.txt (all lines) ---'
-Get-Content "$AppDir\setup-status.txt" -ErrorAction SilentlyContinue
+if (Test-Path "$AppDir\setup-status.txt") {
+  $raw2 = [System.IO.File]::ReadAllBytes("$AppDir\setup-status.txt")
+  Write-Host "  exists, $($raw2.Length) bytes"
+  Write-Host "  hex: $([BitConverter]::ToString($raw2[0..([math]::Min(99,$raw2.Length-1))]))"
+  Write-Host "  text: $([System.IO.File]::ReadAllText("$AppDir\setup-status.txt"))"
+} else { Write-Host '  FILE NOT FOUND' }
 
 # ------------------------------------------------------------ 4 - UNINSTALL
 Write-Host '== 4. silent uninstall =='
