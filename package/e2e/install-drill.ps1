@@ -36,8 +36,10 @@ function Invoke-SilentSetup([string]$logName) {
   Get-Content "$AppDir\logs\setup.log" -ErrorAction SilentlyContinue | Select-Object -Last 30
   Write-Host '--- inno log (tail) ---'
   Get-Content "$env:RUNNER_TEMP\$logName" -ErrorAction SilentlyContinue | Select-Object -Last 20
-  Write-Host '--- setup-diag.txt ---'
+  Write-Host '--- setup-diag.txt (%TEMP%) ---'
   Get-Content "$env:TEMP\basapos-setup-diag.txt" -ErrorAction SilentlyContinue | Select-Object -Last 10
+  Write-Host '--- setup-diag.txt (UserProfile) ---'
+  Get-Content "$env:USERPROFILE\basapos-setup-diag.txt" -ErrorAction SilentlyContinue | Select-Object -Last 10
   return $p
 }
 
@@ -95,8 +97,10 @@ $status2 = (Get-Content "$AppDir\setup-status.txt") -join ''
 Check 'post-upgrade SETUP_COMPLETE' ("$status2" -match '^SETUP_COMPLETE')
 $code2 = & $ping
 Check "site responds 200 post-upgrade (got $code2)" ("$code2" -eq '200')
-Write-Host '--- post-upgrade setup-diag.txt ---'
+Write-Host '--- post-upgrade setup-diag.txt (%TEMP%) ---'
 Get-Content "$env:TEMP\basapos-setup-diag.txt" -ErrorAction SilentlyContinue
+Write-Host '--- post-upgrade setup-diag.txt (UserProfile) ---'
+Get-Content "$env:USERPROFILE\basapos-setup-diag.txt" -ErrorAction SilentlyContinue
 
 # ------------------------------------------------------------ 4 - UNINSTALL
 Write-Host '== 4. silent uninstall =='
