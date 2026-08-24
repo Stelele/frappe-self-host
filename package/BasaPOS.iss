@@ -42,7 +42,9 @@ Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: de
 Name: "{userstartup}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: autostart
 
 [Run]
-Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File {app}\payload\install\setup.ps1 -AppDir {app}"; StatusMsg: "Setting up appliance (several minutes)..."; Flags: runhidden waituntilterminated
+;[Run] section disabled — setup is driven from [Code] so we can poll
+;setup-status.txt instead of waiting for PowerShell to exit (child
+;processes keep it alive indefinitely).
 
 [UninstallRun]
 Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File {app}\payload\install\remove-basapos.ps1"; Flags: runhidden; RunOnceId: "BasaPOSCleanup"
@@ -65,4 +67,41 @@ end;
 function SetupSucceeded(): Boolean;
 begin
   Result := Pos('SETUP_COMPLETE', ReadStatus()) > 0;
+end;
+
+procedure CurStepChanged(CurStep: TSetupStep);
+var
+  ResultCode: Integer;
+  Status: String;
+  Deadline: TDateTime;
+begin
+  if CurStep = ssPostInstall then
+  begin
+    StatusMsg('Setting up appliance (several minutes)...');
+    { Launch without waiting — child processes keep PowerShell alive
+      indefinitely, so we poll setup-status.txt instead. }
+    Exec('powershell.exe',
+      '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' +
+      ExpandConstant('{app}\payload\install\setup.ps1') + '" -AppDir "' +
+      ExpandConstant('{app}') + '"',
+      '', SW_HIDE, ewNoWait, ResultCode);
+
+    { Poll status file for a terminal state. }
+    Deadline := Now + (35.0 / 1440); { 35 minutes }
+    while Now < Deadline do
+    begin
+      Status := ReadStatus();
+      if Pos('SETUP_COMPLETE', Status) > 0 then
+        Exit;
+      if Pos('NEEDS_REBOOT', Status) > 0 then
+        Exit;
+      if Pos('ERROR', Status) > 0 then
+      begin
+        MsgBox('Setup failed: ' + Status, mbError, MB_OK);
+        Exit;
+      end;
+      Sleep(5000);
+    end;
+    MsgBox('Setup timed out waiting for appliance.', mbError, MB_OK);
+  end;
 end;
