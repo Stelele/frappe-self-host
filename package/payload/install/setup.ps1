@@ -224,6 +224,12 @@ try {
   Unregister-ScheduledTask -TaskName $ResumeTask -Confirm:$false -ErrorAction SilentlyContinue
 
   Write-BasaLog "==== setup complete ===="
+
+  # Force-kill this process so Inno Setup's WaitForExit returns.
+  # Child processes (wsl, bench) spawned during upgrade can keep the
+  # PowerShell process alive indefinitely.  All work is done and status
+  # is written — safe to die.
+  Stop-Process -Id $PID -Force -ErrorAction SilentlyContinue
 } catch {
   Write-BasaLog "FATAL: $($_.Exception.Message)"
   Set-SetupStatus ("ERROR: " + $_.Exception.Message)
