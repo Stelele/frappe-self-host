@@ -83,15 +83,14 @@ begin
     DiagFile := ExpandConstant('{app}\setup-diag.txt');
     IsUpgrade := FileExists(ExpandConstant('{app}\installed.txt'));
 
-    Line := DateTimeToStr(Now) + ' CurStepChanged:';
+    Line := 'CurStepChanged:';
     if IsUpgrade then
       Line := Line + ' IsUpgrade=TRUE'
     else
       Line := Line + ' IsUpgrade=FALSE';
     SaveStringToFile(DiagFile, Line + #13#10, True);
 
-    Line := DateTimeToStr(Now) + ' AppDir=' + ExpandConstant('{app}');
-    SaveStringToFile(DiagFile, Line + #13#10, True);
+    SaveStringToFile(DiagFile, 'AppDir=' + ExpandConstant('{app}') + #13#10, True);
 
     PsArgs := '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' +
       ExpandConstant('{app}\payload\install\setup.ps1') + '" -AppDir "' +
@@ -99,15 +98,13 @@ begin
     if IsUpgrade then
       PsArgs := PsArgs + ' -Upgrade';
 
-    Line := DateTimeToStr(Now) + ' PsArgs=' + PsArgs;
-    SaveStringToFile(DiagFile, Line + #13#10, True);
+    SaveStringToFile(DiagFile, 'PsArgs=' + PsArgs + #13#10, True);
 
     { Clear stale status file so polling loop doesn't exit on old SETUP_COMPLETE }
     DeleteFile(ExpandConstant('{app}\setup-status.txt'));
 
     Exec('powershell.exe', PsArgs, '', SW_HIDE, ewNoWait, ResultCode);
-    Line := DateTimeToStr(Now) + ' Exec returned ResultCode=' + IntToStr(ResultCode);
-    SaveStringToFile(DiagFile, Line + #13#10, True);
+    SaveStringToFile(DiagFile, 'Exec returned ResultCode=' + IntToStr(ResultCode) + #13#10, True);
 
     { Poll status file for a terminal state (max ~17 min = 200 * 5s). }
     for I := 1 to 200 do
@@ -115,8 +112,7 @@ begin
       Status := ReadStatus();
       if (I <= 5) or (I mod 20 = 0) or (Pos('SETUP_COMPLETE', Status) > 0) or (Pos('ERROR', Status) > 0) then
       begin
-        Line := DateTimeToStr(Now) + ' Poll #' + IntToStr(I) + ': ' + Status;
-        SaveStringToFile(DiagFile, Line + #13#10, True);
+        SaveStringToFile(DiagFile, 'Poll #' + IntToStr(I) + ': ' + Status + #13#10, True);
       end;
       if Pos('SETUP_COMPLETE', Status) > 0 then
         Exit;
