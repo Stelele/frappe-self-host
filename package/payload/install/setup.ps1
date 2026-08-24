@@ -31,11 +31,14 @@ $RequiredFreeGB = 12
 
 New-Item -ItemType Directory -Force -Path $ConfigDir, (Join-Path $InstallRoot "logs") | Out-Null
 $env:BASA_LOG_FILE = Join-Path $InstallRoot "logs\setup.log"
+# Write early diagnostics to %TEMP% so the drill can always read them
+# (the {app} path may differ between Inno Setup and the drill process).
+$DiagFile = Join-Path $env:TEMP "basapos-setup-diag.txt"
+"$(Get-Date) [BOOT] AppDir=$AppDir PSScriptRoot=$PSScriptRoot InstallRoot=$InstallRoot" |
+  Out-File $DiagFile -Encoding ascii -Force
 # Clear stale status so Inno Setup's polling loop doesn't exit on a
 # leftover SETUP_COMPLETE from a previous run.
 Remove-Item $StatusFile -Force -ErrorAction SilentlyContinue
-$DiagFile = Join-Path $InstallRoot "setup-diag.txt"
-"Diagnostics started $(Get-Date)" | Out-File $DiagFile -Encoding ascii -Force
 . (Join-Path $PSScriptRoot "common.ps1")
 Write-BasaLog "==== setup starting (AppDir=$InstallRoot Resume=$Resume Upgrade=$Upgrade) ===="
 
@@ -169,8 +172,7 @@ function Register-ResumeTask {
 
 # ---------------- main flow ----------------
 $isUpgrade = $Upgrade -or ((Test-Path $InstalledMarker) -and (Test-DistroPresent -InstallRoot $InstallRoot))
-"Diagnostics started $(Get-Date)" | Out-File $DiagFile -Encoding ascii -Force
-"Upgrade=$Upgrade InstalledMarker=$(Test-Path $InstalledMarker) DistroPresent=$(Test-DistroPresent -InstallRoot $InstallRoot) isUpgrade=$isUpgrade" | Out-File $DiagFile -Encoding ascii -Append
+"$(Get-Date) [MAIN] Upgrade=$Upgrade InstalledMarker=$(Test-Path $InstalledMarker) DistroPresent=$(Test-DistroPresent -InstallRoot $InstallRoot) isUpgrade=$isUpgrade" | Out-File $DiagFile -Encoding ascii -Append
 
 if ($Resume -and (Test-Path $InstalledMarker) -and (Test-Path $StatusFile) -and
     ((Get-Content $StatusFile -ErrorAction SilentlyContinue) -match 'SETUP_COMPLETE')) {
@@ -194,15 +196,15 @@ if (Test-RebootPending) {
 try {
   $backupDest = $null
   if ($isUpgrade -and (Test-DistroPresent -InstallRoot $InstallRoot)) {
-    "Entering upgrade path $(Get-Date)" | Out-File $DiagFile -Encoding ascii -Append
+    "$(Get-Date) [UPGRADE] entering upgrade path" | Out-File $DiagFile -Encoding ascii -Append
     try { $backupDest = Backup-SiteForUpgrade } catch { Write-BasaLog "FATAL: $($_.Exception.Message)"; Set-SetupStatus "ERROR_BACKUP"; exit 1 }
-    "Backup done $(Get-Date)" | Out-File $DiagFile -Encoding ascii -Append
+    "$(Get-Date) [UPGRADE] backup done dest=$backupDest" | Out-File $DiagFile -Encoding ascii -Append
     & wsl.exe --unregister $script:Distro 2>$null
     if ($LASTEXITCODE -ne 0) { Write-BasaLog "WARN: unregister exit $LASTEXITCODE (continuing)" }
     Import-RootfsIfNeeded -Force
     Restore-LatestBackup -Dest $backupDest
   } else {
-    "Entering fresh install path $(Get-Date)" | Out-File $DiagFile -Encoding ascii -Append
+    "$(Get-Date) [FRESH] entering fresh install path" | Out-File $DiagFile -Encoding ascii -Append
     Import-RootfsIfNeeded
     New-Credentials
   }
