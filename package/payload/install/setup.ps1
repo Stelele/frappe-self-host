@@ -31,6 +31,9 @@ $RequiredFreeGB = 12
 
 New-Item -ItemType Directory -Force -Path $ConfigDir, (Join-Path $InstallRoot "logs") | Out-Null
 $env:BASA_LOG_FILE = Join-Path $InstallRoot "logs\setup.log"
+# Clear stale status so Inno Setup's polling loop doesn't exit on a
+# leftover SETUP_COMPLETE from a previous run.
+Remove-Item $StatusFile -Force -ErrorAction SilentlyContinue
 . (Join-Path $PSScriptRoot "common.ps1")
 Write-BasaLog "==== setup starting (AppDir=$InstallRoot Resume=$Resume Upgrade=$Upgrade) ===="
 
