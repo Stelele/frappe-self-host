@@ -82,9 +82,11 @@ begin
     DiagFile := ExpandConstant('{app}\setup-diag.txt');
     IsUpgrade := FileExists(ExpandConstant('{app}\installed.txt'));
 
-    SaveStringToFile(DiagFile, DateTimeToStr(Now) + ' CurStepChanged: IsUpgrade=' + BoolToStr(IsUpgrade) + #13#10, True);
+    if IsUpgrade then
+      SaveStringToFile(DiagFile, DateTimeToStr(Now) + ' CurStepChanged: IsUpgrade=TRUE' + #13#10, True)
+    else
+      SaveStringToFile(DiagFile, DateTimeToStr(Now) + ' CurStepChanged: IsUpgrade=FALSE' + #13#10, True);
     SaveStringToFile(DiagFile, DateTimeToStr(Now) + ' AppDir=' + ExpandConstant('{app}') + #13#10, True);
-    SaveStringToFile(DiagFile, DateTimeToStr(Now) + ' installed.txt exists=' + BoolToStr(FileExists(ExpandConstant('{app}\installed.txt'))) + #13#10, True);
 
     PsArgs := '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' +
       ExpandConstant('{app}\payload\install\setup.ps1') + '" -AppDir "' +
