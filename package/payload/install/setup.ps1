@@ -71,18 +71,8 @@ function Import-RootfsIfNeeded {
   if ($freeGB -lt $RequiredFreeGB) { throw "only $freeGB GB free; need ~$RequiredFreeGB GB" }
   New-Item -ItemType Directory -Force -Path $DistroDir | Out-Null
   Write-BasaLog "importing appliance rootfs (minutes)..."
-  $importProc = Start-Process wsl.exe -ArgumentList "--import $script:Distro `"$DistroDir`" `"$RootfsTar`"" -NoNewWindow -PassThru -RedirectStandardError "$env:TEMP\wsl-import-err.txt"
-  $importTimeout = 600
-  $sw = [System.Diagnostics.Stopwatch]::StartNew()
-  while (-not $importProc.HasExited -and $sw.Elapsed.TotalSeconds -lt $importTimeout) {
-    Start-Sleep -Seconds 10
-  }
-  if (-not $importProc.HasExited) {
-    Write-BasaLog "FATAL: wsl --import timed out after ${importTimeout}s"
-    $importProc.Kill()
-    throw "wsl --import timed out"
-  }
-  if ($importProc.ExitCode -ne 0) { throw "wsl --import failed (exit $($importProc.ExitCode))" }
+  & wsl.exe --import $script:Distro $DistroDir $RootfsTar 2>$null | Out-Null
+  if ($LASTEXITCODE -ne 0) { throw "wsl --import failed (exit $LASTEXITCODE)" }
   $deadline = (Get-Date).AddSeconds(60)
   while (-not (Test-DistroPresent) -and (Get-Date) -lt $deadline) { Start-Sleep -Seconds 3 }
   if (-not (Test-DistroPresent)) { throw "distro not listed after import" }
@@ -220,18 +210,17 @@ try {
     [System.IO.File]::AppendAllText($DebugFile, "$(Get-Date) PATH: backup done dest=$backupDest`n")
 
     [System.IO.File]::AppendAllText($DebugFile, "$(Get-Date) PATH: unregistering distro`n")
-    $unregProc = Start-Process wsl.exe -ArgumentList "--unregister $script:Distro" -NoNewWindow -PassThru -RedirectStandardError "$env:TEMP\wsl-unreg-err.txt"
+    $unregJob = Start-Job -ScriptBlock { param($d) & wsl.exe --unregister $d 2>$null; $LASTEXITCODE } -ArgumentList $script:Distro
     $unregTimeout = 120
-    $sw = [System.Diagnostics.Stopwatch]::StartNew()
-    while (-not $unregProc.HasExited -and $sw.Elapsed.TotalSeconds -lt $unregTimeout) {
-      Start-Sleep -Seconds 3
+    $completed = Wait-Job $unregJob -Timeout $unregTimeout
+    if ($null -eq $completed) {
+      [System.IO.File]::AppendAllText($DebugFile, "$(Get-Date) PATH: unregister TIMED OUT after ${unregTimeout}s, stopping`n")
+      Stop-Job $unregJob
     }
-    if (-not $unregProc.HasExited) {
-      [System.IO.File]::AppendAllText($DebugFile, "$(Get-Date) PATH: unregister TIMED OUT after ${unregTimeout}s, killing`n")
-      $unregProc.Kill()
-    }
-    [System.IO.File]::AppendAllText($DebugFile, "$(Get-Date) PATH: unregister exit $($unregProc.ExitCode)`n")
-    if ($unregProc.ExitCode -ne 0) { Write-BasaLog "WARN: unregister exit $($unregProc.ExitCode) (continuing)" }
+    $unregResult = Receive-Job $unregJob
+    Remove-Job $unregJob -Force
+    [System.IO.File]::AppendAllText($DebugFile, "$(Get-Date) PATH: unregister exit $unregResult`n")
+    if ($unregResult -ne 0) { Write-BasaLog "WARN: unregister exit $unregResult (continuing)" }
 
     [System.IO.File]::AppendAllText($DebugFile, "$(Get-Date) PATH: importing rootfs`n")
     Import-RootfsIfNeeded -Force
