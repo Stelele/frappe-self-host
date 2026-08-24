@@ -142,30 +142,6 @@ function Convert-ToWslPath([string]$WinPath) {
   return "/mnt/$drive" + $p.Substring(2)
 }
 
-function Invoke-WslCaptured {
-  param(
-    [string]$Distro,
-    [string]$User,
-    [string]$Command,
-    [int]$TimeoutSeconds = 600
-  )
-  $job = Start-Job -ScriptBlock {
-    param($d, $u, $c)
-    $output = & wsl.exe -d $d -u $u -- bash -c $c 2>&1
-    @{ ExitCode = $LASTEXITCODE; Output = $output }
-  } -ArgumentList $Distro, $User, $Command
-  $completed = Wait-Job $job -Timeout $TimeoutSeconds
-  if ($null -eq $completed) {
-    Stop-Job $job
-    Remove-Job $job -Force
-    throw "WSL command timed out after ${TimeoutSeconds}s"
-  }
-  $result = Receive-Job $job
-  Remove-Job $job -Force
-  if ($result.ExitCode -ne 0) { throw "WSL command failed (exit $($result.ExitCode))" }
-  return $result.Output
-}
-
 function Restore-LatestBackup {
   param([string]$Dest)
   Write-BasaLog "restoring pre-upgrade backup"
@@ -178,8 +154,32 @@ function Restore-LatestBackup {
   $cmd = "cd /home/frappe/bench && bench --site basapos.local restore '$inSql' --force"
   if ($files) { $cmd += " --with-public-files '" + (Convert-ToWslPath $files.FullName) + "'" }
   if ($priv)  { $cmd += " --with-private-files '" + (Convert-ToWslPath $priv.FullName) + "'" }
-  Invoke-WslCaptured -Distro $script:Distro -User "frappe" -Command $cmd -TimeoutSeconds 900
-  Invoke-WslCaptured -Distro $script:Distro -User "frappe" -Command "cd /home/frappe/bench && bench --site basapos.local migrate && bench --site basapos.local clear-cache" -TimeoutSeconds 900
+  $nullFile = Join-Path $env:TEMP "nul.txt"
+  if (-not (Test-Path $nullFile)) { Set-Content -Path $nullFile -Value "" -NoNewline }
+  $p = Start-Process cmd.exe -ArgumentList "/c wsl.exe -d $script:Distro -u frappe -- bash -c `"$cmd`" < `"$nullFile`" > `"$nullFile`" 2> `"$nullFile`"" -NoNewWindow -PassThru
+  $timeout = 900
+  $sw = [System.Diagnostics.Stopwatch]::StartNew()
+  while (-not $p.HasExited -and $sw.Elapsed.TotalSeconds -lt $timeout) {
+    Start-Sleep -Seconds 10
+  }
+  if (-not $p.HasExited) {
+    Write-BasaLog "FATAL: bench restore timed out after ${timeout}s"
+    $p.Kill()
+    throw "restore timed out"
+  }
+  if ($p.ExitCode -ne 0) { throw "restore failed (exit $($p.ExitCode))" }
+  $migrateCmd = "cd /home/frappe/bench && bench --site basapos.local migrate && bench --site basapos.local clear-cache"
+  $p2 = Start-Process cmd.exe -ArgumentList "/c wsl.exe -d $script:Distro -u frappe -- bash -c `"$migrateCmd`" < `"$nullFile`" > `"$nullFile`" 2> `"$nullFile`"" -NoNewWindow -PassThru
+  $sw2 = [System.Diagnostics.Stopwatch]::StartNew()
+  while (-not $p2.HasExited -and $sw2.Elapsed.TotalSeconds -lt $timeout) {
+    Start-Sleep -Seconds 10
+  }
+  if (-not $p2.HasExited) {
+    Write-BasaLog "FATAL: bench migrate timed out after ${timeout}s"
+    $p2.Kill()
+    throw "migrate timed out"
+  }
+  if ($p2.ExitCode -ne 0) { throw "post-restore migrate failed (exit $($p2.ExitCode))" }
   Write-BasaLog "restore complete"
 }
 
