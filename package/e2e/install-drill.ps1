@@ -36,6 +36,8 @@ function Invoke-SilentSetup([string]$logName) {
   Get-Content "$AppDir\logs\setup.log" -ErrorAction SilentlyContinue | Select-Object -Last 30
   Write-Host '--- inno log (tail) ---'
   Get-Content "$env:RUNNER_TEMP\$logName" -ErrorAction SilentlyContinue | Select-Object -Last 20
+  Write-Host '--- setup-diag.txt ---'
+  Get-Content "$AppDir\setup-diag.txt" -ErrorAction SilentlyContinue | Select-Object -Last 10
   return $p
 }
 
