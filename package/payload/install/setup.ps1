@@ -31,6 +31,9 @@ $RequiredFreeGB = 12
 
 New-Item -ItemType Directory -Force -Path $ConfigDir, (Join-Path $InstallRoot "logs") | Out-Null
 $env:BASA_LOG_FILE = Join-Path $InstallRoot "logs\setup.log"
+# Also write a debug file at a known path (the drill will hex-dump this)
+$DebugFile = Join-Path $InstallRoot "setup-debug.txt"
+"$(Get-Date) BOOT AppDir=$AppDir PSScriptRoot=$PSScriptRoot" | Out-File $DebugFile -Encoding ascii -Force
 # Clear stale status so Inno Setup's polling loop doesn't exit on a
 # leftover SETUP_COMPLETE from a previous run.
 $StatusFile = Join-Path $InstallRoot "setup-status.txt"
@@ -174,10 +177,11 @@ function Register-ResumeTask {
 # of what the ISS passes.  The ISS [Code] section's FileExists check may not
 # work in all elevated contexts.
 if (-not $Upgrade -and (Test-Path $InstalledMarker)) {
-  Write-BasaLog "auto-detected upgrade (installed.txt exists)"
+  "$(Get-Date) UPGRADE-DETECT: installed.txt found at $InstalledMarker" | Out-File $DebugFile -Encoding ascii -Append
   $Upgrade = $true
 }
 $isUpgrade = $Upgrade -or ((Test-Path $InstalledMarker) -and (Test-DistroPresent -InstallRoot $InstallRoot))
+"$(Get-Date) UPGRADE-DETECT: Upgrade=$Upgrade isUpgrade=$isUpgrade Marker=$(Test-Path $InstalledMarker) DistroPresent=$(Test-DistroPresent -InstallRoot $InstallRoot)" | Out-File $DebugFile -Encoding ascii -Append
 
 if ($Resume -and (Test-Path $InstalledMarker) -and (Test-Path $StatusFile) -and
     ((Get-Content $StatusFile -ErrorAction SilentlyContinue) -match 'SETUP_COMPLETE')) {
@@ -201,15 +205,15 @@ if (Test-RebootPending) {
 try {
   $backupDest = $null
   if ($isUpgrade) {
-    Write-BasaLog "DIAG: entering UPGRADE path"
+    "$(Get-Date) PATH: entering UPGRADE path" | Out-File $DebugFile -Encoding ascii -Append
     try { $backupDest = Backup-SiteForUpgrade } catch { Write-BasaLog "FATAL: $($_.Exception.Message)"; Set-SetupStatus "ERROR_BACKUP"; exit 1 }
-    Write-BasaLog "DIAG: backup done dest=$backupDest"
+    "$(Get-Date) PATH: backup done dest=$backupDest" | Out-File $DebugFile -Encoding ascii -Append
     & wsl.exe --unregister $script:Distro 2>$null
     if ($LASTEXITCODE -ne 0) { Write-BasaLog "WARN: unregister exit $LASTEXITCODE (continuing)" }
     Import-RootfsIfNeeded -Force
     Restore-LatestBackup -Dest $backupDest
   } else {
-    Write-BasaLog "DIAG: entering FRESH install path (isUpgrade=$isUpgrade)"
+    "$(Get-Date) PATH: entering FRESH install path (isUpgrade=$isUpgrade)" | Out-File $DebugFile -Encoding ascii -Append
     Import-RootfsIfNeeded
     New-Credentials
   }

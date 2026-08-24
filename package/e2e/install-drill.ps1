@@ -34,6 +34,12 @@ function Invoke-SilentSetup([string]$logName) {
   Get-Content "$AppDir\setup-status.txt" -ErrorAction SilentlyContinue | Select-Object -Last 5
   Write-Host '--- setup.log (tail) ---'
   Get-Content "$AppDir\logs\setup.log" -ErrorAction SilentlyContinue | Select-Object -Last 50
+  Write-Host '--- setup-debug.txt ---'
+  if (Test-Path "$AppDir\setup-debug.txt") {
+    $dbgRaw = [System.IO.File]::ReadAllBytes("$AppDir\setup-debug.txt")
+    Write-Host "  $($dbgRaw.Length) bytes"
+    Write-Host "  $([System.IO.File]::ReadAllText("$AppDir\setup-debug.txt"))"
+  } else { Write-Host '  NOT FOUND' }
   Write-Host '--- inno log (tail) ---'
   Get-Content "$env:RUNNER_TEMP\$logName" -ErrorAction SilentlyContinue | Select-Object -Last 20
   return $p
