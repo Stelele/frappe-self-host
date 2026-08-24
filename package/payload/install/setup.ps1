@@ -194,7 +194,7 @@ if (Test-RebootPending) {
 
 try {
   $backupDest = $null
-  if ($isUpgrade -and (Test-DistroPresent -InstallRoot $InstallRoot)) {
+  if ($isUpgrade) {
     Write-BasaLog "DIAG: entering UPGRADE path"
     try { $backupDest = Backup-SiteForUpgrade } catch { Write-BasaLog "FATAL: $($_.Exception.Message)"; Set-SetupStatus "ERROR_BACKUP"; exit 1 }
     Write-BasaLog "DIAG: backup done dest=$backupDest"
