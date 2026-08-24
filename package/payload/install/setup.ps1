@@ -33,7 +33,7 @@ New-Item -ItemType Directory -Force -Path $ConfigDir, (Join-Path $InstallRoot "l
 $env:BASA_LOG_FILE = Join-Path $InstallRoot "logs\setup.log"
 # Also write a debug file at a known path (the drill will hex-dump this)
 $DebugFile = Join-Path $InstallRoot "setup-debug.txt"
-"$(Get-Date) BOOT AppDir=$AppDir PSScriptRoot=$PSScriptRoot" | Out-File $DebugFile -Encoding ascii -Force
+[System.IO.File]::WriteAllText($DebugFile, "$(Get-Date) BOOT AppDir=$AppDir`n")
 # Clear stale status so Inno Setup's polling loop doesn't exit on a
 # leftover SETUP_COMPLETE from a previous run.
 $StatusFile = Join-Path $InstallRoot "setup-status.txt"
@@ -177,11 +177,11 @@ function Register-ResumeTask {
 # of what the ISS passes.  The ISS [Code] section's FileExists check may not
 # work in all elevated contexts.
 if (-not $Upgrade -and (Test-Path $InstalledMarker)) {
-  "$(Get-Date) UPGRADE-DETECT: installed.txt found at $InstalledMarker" | Out-File $DebugFile -Encoding ascii -Append
+  [System.IO.File]::AppendAllText($DebugFile, "$(Get-Date) UPGRADE-DETECT: installed.txt found`n")
   $Upgrade = $true
 }
 $isUpgrade = $Upgrade -or ((Test-Path $InstalledMarker) -and (Test-DistroPresent -InstallRoot $InstallRoot))
-"$(Get-Date) UPGRADE-DETECT: Upgrade=$Upgrade isUpgrade=$isUpgrade Marker=$(Test-Path $InstalledMarker) DistroPresent=$(Test-DistroPresent -InstallRoot $InstallRoot)" | Out-File $DebugFile -Encoding ascii -Append
+[System.IO.File]::AppendAllText($DebugFile, "$(Get-Date) UPGRADE-DETECT: Upgrade=$Upgrade isUpgrade=$isUpgrade`n")
 
 if ($Resume -and (Test-Path $InstalledMarker) -and (Test-Path $StatusFile) -and
     ((Get-Content $StatusFile -ErrorAction SilentlyContinue) -match 'SETUP_COMPLETE')) {
@@ -205,15 +205,15 @@ if (Test-RebootPending) {
 try {
   $backupDest = $null
   if ($isUpgrade) {
-    "$(Get-Date) PATH: entering UPGRADE path" | Out-File $DebugFile -Encoding ascii -Append
+    [System.IO.File]::AppendAllText($DebugFile, "$(Get-Date) PATH: entering UPGRADE path`n")
     try { $backupDest = Backup-SiteForUpgrade } catch { Write-BasaLog "FATAL: $($_.Exception.Message)"; Set-SetupStatus "ERROR_BACKUP"; exit 1 }
-    "$(Get-Date) PATH: backup done dest=$backupDest" | Out-File $DebugFile -Encoding ascii -Append
+    [System.IO.File]::AppendAllText($DebugFile, "$(Get-Date) PATH: backup done dest=$backupDest`n")
     & wsl.exe --unregister $script:Distro 2>$null
     if ($LASTEXITCODE -ne 0) { Write-BasaLog "WARN: unregister exit $LASTEXITCODE (continuing)" }
     Import-RootfsIfNeeded -Force
     Restore-LatestBackup -Dest $backupDest
   } else {
-    "$(Get-Date) PATH: entering FRESH install path (isUpgrade=$isUpgrade)" | Out-File $DebugFile -Encoding ascii -Append
+    [System.IO.File]::AppendAllText($DebugFile, "$(Get-Date) PATH: entering FRESH install path`n")
     Import-RootfsIfNeeded
     New-Credentials
   }
@@ -240,6 +240,7 @@ try {
   if ($online) { Write-BasaLog "site online" } else { Write-BasaLog "WARN: site not yet online; autostart will finish booting" }
 
   New-Item -ItemType File -Path $InstalledMarker -Force | Out-Null
+  [System.IO.File]::AppendAllText($DebugFile, "$(Get-Date) FINAL: online=$online isUpgrade=$isUpgrade`n")
   if ($online) { Set-SetupStatus "SETUP_COMPLETE" }
   else { Set-SetupStatus "SETUP_COMPLETE_DEGRADED" }
   Unregister-ScheduledTask -TaskName $ResumeTask -Confirm:$false -ErrorAction SilentlyContinue
