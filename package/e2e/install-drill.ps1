@@ -74,9 +74,12 @@ Check 'boot-wrapper stamps RUNNING' $running
 # -------------------------------------------------------- 3 - UPGRADE DRILL
 Write-Host '== 3. upgrade drill (re-run setup) =='
 # Kill anything that could stall Inno's CloseApplications check
+$oldEap = $ErrorActionPreference
+$ErrorActionPreference = 'Continue'
 & taskkill /F /IM wsl.exe /T 2>$null
 Get-Process -Name 'wsl','BasaPOS','conhost' -ErrorAction SilentlyContinue |
   Stop-Process -Force -ErrorAction SilentlyContinue
+$ErrorActionPreference = $oldEap
 Start-Sleep -Seconds 3
 $p2 = Invoke-SilentSetup 'inno-upgrade.log'
 Check "second setup exit 0 (got $($p2.ExitCode))" ($p2.ExitCode -eq 0)
@@ -93,7 +96,10 @@ Check "site responds 200 post-upgrade (got $code2)" ("$code2" -eq '200')
 
 # ------------------------------------------------------------ 4 - UNINSTALL
 Write-Host '== 4. silent uninstall =='
+$oldEap = $ErrorActionPreference
+$ErrorActionPreference = 'Continue'
 & taskkill /F /IM wsl.exe /T 2>$null
+$ErrorActionPreference = $oldEap
 Start-Sleep -Seconds 5
 $unins = Get-ChildItem $AppDir -Filter 'unins*.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
 Check 'uninstaller present' ($null -ne $unins)
