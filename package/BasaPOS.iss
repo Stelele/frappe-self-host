@@ -73,7 +73,7 @@ procedure CurStepChanged(CurStep: TSetupStep);
 var
   ResultCode: Integer;
   Status: String;
-  Deadline: TDateTime;
+  Deadline: Cardinal;
 begin
   if CurStep = ssPostInstall then
   begin
@@ -87,8 +87,8 @@ begin
       '', SW_HIDE, ewNoWait, ResultCode);
 
     { Poll status file for a terminal state. }
-    Deadline := Now + (35.0 / 1440); { 35 minutes }
-    while Now < Deadline do
+    Deadline := GetTickCount + (35 * 60 * 1000); { 35 minutes }
+    while GetTickCount < Deadline do
     begin
       Status := ReadStatus();
       if Pos('SETUP_COMPLETE', Status) > 0 then
