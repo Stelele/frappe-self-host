@@ -125,12 +125,17 @@ function Backup-SiteForUpgrade {
   return $dest
 }
 
-function Stop-StaleWslProcesses {
-  # Kill orphaned wsl.exe children that outlive the script and block Inno Setup exit.
-  & wsl.exe --shutdown 2>$null
-  Start-Sleep -Seconds 2
-  Get-Process -Name 'wsl' -ErrorAction SilentlyContinue |
-    Stop-Process -Force -ErrorAction SilentlyContinue
+function Start-CleanupJob {
+  # After the script exits, orphaned child processes (wsl, conhost) can keep
+  # Inno Setup's WaitForExit blocked forever.  Spawn a background job that
+  # force-kills the entire process tree once the script is done.
+  $myPid = $PID
+  Start-Job -ScriptBlock {
+    param($ppid)
+    Start-Sleep -Seconds 8
+    & taskkill /F /IM wsl.exe /T 2>$null
+    & taskkill /F /IM conhost.exe /T 2>$null
+  } | Out-Null
 }
 
 function Convert-ToWslPath([string]$WinPath) {
@@ -231,7 +236,7 @@ try {
   Unregister-ScheduledTask -TaskName $ResumeTask -Confirm:$false -ErrorAction SilentlyContinue
 
   # Kill orphaned WSL children so Inno Setup can exit cleanly.
-  Stop-StaleWslProcesses
+  Start-CleanupJob
 
   Write-BasaLog "==== setup complete ===="
 } catch {

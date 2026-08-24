@@ -93,9 +93,7 @@ Check "site responds 200 post-upgrade (got $code2)" ("$code2" -eq '200')
 
 # ------------------------------------------------------------ 4 - UNINSTALL
 Write-Host '== 4. silent uninstall =='
-& wsl.exe --shutdown 2>$null
-Get-Process -Name 'wsl' -ErrorAction SilentlyContinue |
-  Stop-Process -Force -ErrorAction SilentlyContinue
+& taskkill /F /IM wsl.exe /T 2>$null
 Start-Sleep -Seconds 5
 $unins = Get-ChildItem $AppDir -Filter 'unins*.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
 Check 'uninstaller present' ($null -ne $unins)
