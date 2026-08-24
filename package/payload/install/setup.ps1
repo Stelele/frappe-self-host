@@ -171,6 +171,7 @@ function Register-ResumeTask {
 
 # ---------------- main flow ----------------
 $isUpgrade = $Upgrade -or ((Test-Path $InstalledMarker) -and (Test-DistroPresent -InstallRoot $InstallRoot))
+Write-BasaLog "DIAG: Upgrade=$Upgrade InstalledMarker=$(Test-Path $InstalledMarker) DistroPresent=$(Test-DistroPresent -InstallRoot $InstallRoot) isUpgrade=$isUpgrade AppDir=$AppDir"
 
 if ($Resume -and (Test-Path $InstalledMarker) -and (Test-Path $StatusFile) -and
     ((Get-Content $StatusFile -ErrorAction SilentlyContinue) -match 'SETUP_COMPLETE')) {
@@ -194,12 +195,15 @@ if (Test-RebootPending) {
 try {
   $backupDest = $null
   if ($isUpgrade -and (Test-DistroPresent -InstallRoot $InstallRoot)) {
+    Write-BasaLog "DIAG: entering UPGRADE path"
     try { $backupDest = Backup-SiteForUpgrade } catch { Write-BasaLog "FATAL: $($_.Exception.Message)"; Set-SetupStatus "ERROR_BACKUP"; exit 1 }
+    Write-BasaLog "DIAG: backup done dest=$backupDest"
     & wsl.exe --unregister $script:Distro 2>$null
     if ($LASTEXITCODE -ne 0) { Write-BasaLog "WARN: unregister exit $LASTEXITCODE (continuing)" }
     Import-RootfsIfNeeded -Force
     Restore-LatestBackup -Dest $backupDest
   } else {
+    Write-BasaLog "DIAG: entering FRESH install path (isUpgrade=$isUpgrade)"
     Import-RootfsIfNeeded
     New-Credentials
   }

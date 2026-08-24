@@ -7,6 +7,7 @@ on:
   pull_request:
     paths: ["appliance/**", "apps.json", ".github/workflows/appliance.yml"]
   workflow_dispatch:
+  workflow_call:
 
 jobs:
   build:
@@ -15,7 +16,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Check cache
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: appliance/dist/basapos-rootfs.tar.gz
+          key: rootfs-${{ hashFiles('appliance/**', 'apps.json') }}
+
       - name: Build, smoke, stamp, export, validate
+        if: steps.cache.outputs.cache-hit != 'true'
         run: bash appliance/build.sh
 
       - name: Checksum + size report

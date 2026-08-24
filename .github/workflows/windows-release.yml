@@ -14,16 +14,7 @@ permissions:
 
 jobs:
   rootfs:
-    runs-on: ubuntu-latest
-    timeout-minutes: 120
-    steps:
-      - uses: actions/checkout@v4
-      - name: Build appliance artifact
-        run: bash appliance/build.sh
-      - uses: actions/upload-artifact@v4
-        with:
-          name: basapos-rootfs
-          path: appliance/dist/basapos-rootfs.tar.gz
+    uses: ./.github/workflows/appliance.yml
 
   installer:
     needs: rootfs
