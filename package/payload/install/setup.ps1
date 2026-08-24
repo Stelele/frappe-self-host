@@ -172,8 +172,10 @@ function Register-ResumeTask {
 }
 
 # ---------------- main flow ----------------
-$isUpgrade = $Upgrade -or ((Test-Path $InstalledMarker) -and (Test-DistroPresent -InstallRoot $InstallRoot))
-"MAIN Upgrade=$Upgrade InstalledMarker=$(Test-Path $InstalledMarker) DistroPresent=$(Test-DistroPresent -InstallRoot $InstallRoot) isUpgrade=$isUpgrade" |
+$vhdPath = Join-Path $InstallRoot "data\distro\ext4.vhdx"
+$vhdExists = Test-Path $vhdPath
+$isUpgrade = $Upgrade -or ((Test-Path $InstalledMarker) -and $vhdExists)
+"MAIN Upgrade=$Upgrade InstalledMarker=$(Test-Path $InstalledMarker) vhdPath=$vhdPath vhdExists=$vhdExists isUpgrade=$isUpgrade" |
   Out-File $StatusFile -Encoding ascii -Append
 
 if ($Resume -and (Test-Path $InstalledMarker) -and (Test-Path $StatusFile) -and
@@ -197,7 +199,7 @@ if (Test-RebootPending) {
 
 try {
   $backupDest = $null
-  if ($isUpgrade -and (Test-DistroPresent -InstallRoot $InstallRoot)) {
+  if ($isUpgrade -and $vhdExists) {
     "UPGRADE entering upgrade path" | Out-File $StatusFile -Encoding ascii -Append
     try { $backupDest = Backup-SiteForUpgrade } catch { Write-BasaLog "FATAL: $($_.Exception.Message)"; Set-SetupStatus "ERROR_BACKUP"; exit 1 }
     "UPGRADE backup done dest=$backupDest" | Out-File $StatusFile -Encoding ascii -Append
