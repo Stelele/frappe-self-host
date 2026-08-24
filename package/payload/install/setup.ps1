@@ -125,13 +125,6 @@ function Backup-SiteForUpgrade {
   return $dest
 }
 
-function Stop-ChildProcesses {
-  # Best-effort cleanup of child processes.  Non-blocking: does NOT hang on
-  # wsl.exe --shutdown (which can stall indefinitely in headless contexts).
-  Get-Process -Name 'wsl','conhost' -ErrorAction SilentlyContinue |
-    Stop-Process -Force -ErrorAction SilentlyContinue
-}
-
 function Convert-ToWslPath([string]$WinPath) {
   # C:\Users\me\file.sql.gz -> /mnt/c/Users/me/file.sql.gz
   $p = $WinPath -replace '\\', '/'
@@ -228,9 +221,6 @@ try {
   if ($online) { Set-SetupStatus "SETUP_COMPLETE" }
   else { Set-SetupStatus "SETUP_COMPLETE_DEGRADED" }
   Unregister-ScheduledTask -TaskName $ResumeTask -Confirm:$false -ErrorAction SilentlyContinue
-
-  # Best-effort cleanup of child processes (non-blocking).
-  Stop-ChildProcesses
 
   Write-BasaLog "==== setup complete ===="
 } catch {
