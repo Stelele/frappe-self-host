@@ -76,17 +76,22 @@ var
   IsUpgrade: Boolean;
   PsArgs: String;
   DiagFile: String;
+  Line: String;
 begin
   if CurStep = ssPostInstall then
   begin
     DiagFile := ExpandConstant('{app}\setup-diag.txt');
     IsUpgrade := FileExists(ExpandConstant('{app}\installed.txt'));
 
+    Line := DateTimeToStr(Now) + ' CurStepChanged:';
     if IsUpgrade then
-      SaveStringToFile(DiagFile, DateTimeToStr(Now) + ' CurStepChanged: IsUpgrade=TRUE' + #13#10, True)
+      Line := Line + ' IsUpgrade=TRUE'
     else
-      SaveStringToFile(DiagFile, DateTimeToStr(Now) + ' CurStepChanged: IsUpgrade=FALSE' + #13#10, True);
-    SaveStringToFile(DiagFile, DateTimeToStr(Now) + ' AppDir=' + ExpandConstant('{app}') + #13#10, True);
+      Line := Line + ' IsUpgrade=FALSE';
+    SaveStringToFile(DiagFile, Line + #13#10, True);
+
+    Line := DateTimeToStr(Now) + ' AppDir=' + ExpandConstant('{app}');
+    SaveStringToFile(DiagFile, Line + #13#10, True);
 
     PsArgs := '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' +
       ExpandConstant('{app}\payload\install\setup.ps1') + '" -AppDir "' +
@@ -94,19 +99,25 @@ begin
     if IsUpgrade then
       PsArgs := PsArgs + ' -Upgrade';
 
-    SaveStringToFile(DiagFile, DateTimeToStr(Now) + ' PsArgs=' + PsArgs + #13#10, True);
+    Line := DateTimeToStr(Now) + ' PsArgs=' + PsArgs;
+    SaveStringToFile(DiagFile, Line + #13#10, True);
 
     { Clear stale status file so polling loop doesn't exit on old SETUP_COMPLETE }
     DeleteFile(ExpandConstant('{app}\setup-status.txt'));
 
     Exec('powershell.exe', PsArgs, '', SW_HIDE, ewNoWait, ResultCode);
-    SaveStringToFile(DiagFile, DateTimeToStr(Now) + ' Exec returned, ResultCode=' + IntToStr(ResultCode) + #13#10, True);
+    Line := DateTimeToStr(Now) + ' Exec returned ResultCode=' + IntToStr(ResultCode);
+    SaveStringToFile(DiagFile, Line + #13#10, True);
 
     { Poll status file for a terminal state (max ~17 min = 200 * 5s). }
     for I := 1 to 200 do
     begin
       Status := ReadStatus();
-      SaveStringToFile(DiagFile, DateTimeToStr(Now) + ' Poll #' + IntToStr(I) + ': ' + Status + #13#10, True);
+      if (I <= 5) or (I mod 20 = 0) or (Pos('SETUP_COMPLETE', Status) > 0) or (Pos('ERROR', Status) > 0) then
+      begin
+        Line := DateTimeToStr(Now) + ' Poll #' + IntToStr(I) + ': ' + Status;
+        SaveStringToFile(DiagFile, Line + #13#10, True);
+      end;
       if Pos('SETUP_COMPLETE', Status) > 0 then
         Exit;
       if Pos('NEEDS_REBOOT', Status) > 0 then
