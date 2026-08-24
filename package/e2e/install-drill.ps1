@@ -61,6 +61,11 @@ Check 'credentials generated (16-char pw)' (($creds -join "`n") -match 'password
 $code = & $ping
 Check "site responds 200 from host (got $code)" ("$code" -eq '200')
 $pwBefore = ($creds | Select-String '^password=').Line
+# Diagnostic: show what's in the data directory after first install
+Write-Host '  [DIAG] data dir contents:'
+Get-ChildItem "$AppDir\data" -Recurse -ErrorAction SilentlyContinue | ForEach-Object {
+  Write-Host "    $($_.FullName) ($($_.Length) bytes)"
+}
 
 # ------------------------------------------------------ 2 - AUTOSTART WRAPPER
 Write-Host '== 2. autostart wrapper reaches RUNNING =='
@@ -78,6 +83,13 @@ Check 'boot-wrapper stamps RUNNING' $running
 
 # -------------------------------------------------------- 3 - UPGRADE DRILL
 Write-Host '== 3. upgrade drill (re-run setup) =='
+# Diagnostic: verify the state that setup.ps1 uses for upgrade detection
+$vhdPath = "$AppDir\data\distro\ext4.vhdx"
+$markerPath = "$AppDir\installed.txt"
+Write-Host "  [DIAG] AppDir=$AppDir"
+Write-Host "  [DIAG] installed.txt exists=$(Test-Path $markerPath)"
+Write-Host "  [DIAG] ext4.vhdx exists=$(Test-Path $vhdPath)"
+Write-Host "  [DIAG] ext4.vhdx size=$((Get-Item $vhdPath -ErrorAction SilentlyContinue).Length)"
 # Kill anything that could stall Inno's CloseApplications check
 $oldEap = $ErrorActionPreference
 $ErrorActionPreference = 'Continue'
