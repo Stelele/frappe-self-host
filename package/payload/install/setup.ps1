@@ -199,7 +199,8 @@ try {
 
   Ensure-HostsEntry
   Ensure-WslConfig
-  & wsl.exe --shutdown 2>$null
+  # NOTE: wsl.exe --shutdown removed — it hangs in headless CI contexts and
+  # blocks Inno Setup exit.  The CI runner / uninstaller cleans up WSL state.
 
   & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "register-autostart.ps1") -InstallRoot $InstallRoot 2>$null | Out-Null
   if ($LASTEXITCODE -ne 0) { Write-BasaLog "WARN: register-autostart exit $LASTEXITCODE" }

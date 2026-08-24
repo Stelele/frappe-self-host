@@ -74,7 +74,7 @@ Check 'boot-wrapper stamps RUNNING' $running
 # -------------------------------------------------------- 3 - UPGRADE DRILL
 Write-Host '== 3. upgrade drill (re-run setup) =='
 # Kill anything that could stall Inno's CloseApplications check
-& wsl.exe --shutdown 2>$null
+& taskkill /F /IM wsl.exe /T 2>$null
 Get-Process -Name 'wsl','BasaPOS','conhost' -ErrorAction SilentlyContinue |
   Stop-Process -Force -ErrorAction SilentlyContinue
 Start-Sleep -Seconds 3
