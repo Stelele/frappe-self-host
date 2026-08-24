@@ -125,6 +125,14 @@ function Backup-SiteForUpgrade {
   return $dest
 }
 
+function Stop-StaleWslProcesses {
+  # Kill orphaned wsl.exe children that outlive the script and block Inno Setup exit.
+  & wsl.exe --shutdown 2>$null
+  Start-Sleep -Seconds 2
+  Get-Process -Name 'wsl' -ErrorAction SilentlyContinue |
+    Stop-Process -Force -ErrorAction SilentlyContinue
+}
+
 function Convert-ToWslPath([string]$WinPath) {
   # C:\Users\me\file.sql.gz -> /mnt/c/Users/me/file.sql.gz
   $p = $WinPath -replace '\\', '/'
@@ -204,9 +212,11 @@ try {
   & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "register-autostart.ps1") -InstallRoot $InstallRoot 2>$null | Out-Null
   if ($LASTEXITCODE -ne 0) { Write-BasaLog "WARN: register-autostart exit $LASTEXITCODE" }
 
+  # Health check: shorter for upgrades (site was already confirmed online pre-upgrade).
+  $healthMinutes = if ($isUpgrade) { 5 } else { 10 }
   $url = Get-SiteUrl
-  Write-BasaLog "waiting for $url ..."
-  $deadline = (Get-Date).AddMinutes(10)
+  Write-BasaLog "waiting for $url (max ${healthMinutes} min) ..."
+  $deadline = (Get-Date).AddMinutes($healthMinutes)
   $online = $false
   while ((Get-Date) -lt $deadline) {
     if (Test-DistroPresent) { & wsl.exe -d $script:Distro -u root --exec /bin/true 2>$null }
@@ -219,6 +229,10 @@ try {
   if ($online) { Set-SetupStatus "SETUP_COMPLETE" }
   else { Set-SetupStatus "SETUP_COMPLETE_DEGRADED" }
   Unregister-ScheduledTask -TaskName $ResumeTask -Confirm:$false -ErrorAction SilentlyContinue
+
+  # Kill orphaned WSL children so Inno Setup can exit cleanly.
+  Stop-StaleWslProcesses
+
   Write-BasaLog "==== setup complete ===="
 } catch {
   Write-BasaLog "FATAL: $($_.Exception.Message)"

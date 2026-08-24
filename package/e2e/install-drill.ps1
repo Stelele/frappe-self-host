@@ -22,10 +22,10 @@ function Invoke-SilentSetup([string]$logName) {
   $p = Start-Process -FilePath $SetupExe `
     -ArgumentList '/VERYSILENT','/NORESTART','/SUPPRESSMSGBOXES','/FORCECLOSEAPPLICATIONS',"/LOG=$env:RUNNER_TEMP\$logName" `
     -PassThru
-  # 35 min timeout - upgrade path: backup(1) + import(3) + restore(3) + migrate(1) + shutdown + register + health poll(10) + margin
-  $killed = -not $p.WaitForExit(2100000)
+  # 15 min timeout - upgrade path: backup(1) + import(3) + restore(3) + migrate(1) + health poll(5) + margin
+  $killed = -not $p.WaitForExit(900000)
   if ($killed) {
-    Write-Host "  [TIMEOUT] setup.exe did not exit in 20 min - killing"
+    Write-Host "  [TIMEOUT] setup.exe did not exit in 15 min - killing"
     $p | Stop-Process -Force -ErrorAction SilentlyContinue
     Start-Sleep 2
   }
@@ -93,7 +93,9 @@ Check "site responds 200 post-upgrade (got $code2)" ("$code2" -eq '200')
 
 # ------------------------------------------------------------ 4 - UNINSTALL
 Write-Host '== 4. silent uninstall =='
-& wsl.exe --shutdown
+& wsl.exe --shutdown 2>$null
+Get-Process -Name 'wsl' -ErrorAction SilentlyContinue |
+  Stop-Process -Force -ErrorAction SilentlyContinue
 Start-Sleep -Seconds 5
 $unins = Get-ChildItem $AppDir -Filter 'unins*.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
 Check 'uninstaller present' ($null -ne $unins)
