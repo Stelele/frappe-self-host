@@ -42,9 +42,8 @@ Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: de
 Name: "{userstartup}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: autostart
 
 [Run]
-;[Run] section disabled — setup is driven from [Code] so we can poll
-;setup-status.txt instead of waiting for PowerShell to exit (child
-;processes keep it alive indefinitely).
+; Empty — setup is driven from [Code] CurStepChanged to avoid blocking on
+; PowerShell process exit (child processes keep it alive indefinitely).
 
 [UninstallRun]
 Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File {app}\payload\install\remove-basapos.ps1"; Flags: runhidden; RunOnceId: "BasaPOSCleanup"
@@ -73,22 +72,18 @@ procedure CurStepChanged(CurStep: TSetupStep);
 var
   ResultCode: Integer;
   Status: String;
-  Deadline: Cardinal;
+  I: Integer;
 begin
   if CurStep = ssPostInstall then
   begin
-    StatusMsg('Setting up appliance (several minutes)...');
-    { Launch without waiting — child processes keep PowerShell alive
-      indefinitely, so we poll setup-status.txt instead. }
     Exec('powershell.exe',
       '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' +
       ExpandConstant('{app}\payload\install\setup.ps1') + '" -AppDir "' +
       ExpandConstant('{app}') + '"',
       '', SW_HIDE, ewNoWait, ResultCode);
 
-    { Poll status file for a terminal state. }
-    Deadline := GetTickCount + (35 * 60 * 1000); { 35 minutes }
-    while GetTickCount < Deadline do
+    { Poll status file for a terminal state (max ~17 min = 200 * 5s). }
+    for I := 1 to 200 do
     begin
       Status := ReadStatus();
       if Pos('SETUP_COMPLETE', Status) > 0 then
