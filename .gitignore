@@ -23,3 +23,4 @@ appliance/dist/
 package/payload/wsl/*.msi
 package/wsl/*.msi
 package/build/
+package.zip
