@@ -14,40 +14,37 @@ permissions:
 jobs:
   install-drill:
     runs-on: windows-latest
-    timeout-minutes: 25
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
 
-      - name: Resolve run ID
-        shell: pwsh
+      - name: Download setup exe from prior run
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          $runId = '${{ github.event.inputs.run_id }}'
-          if (-not $runId) {
-            $runs = gh run list --workflow=windows-release --status=completed --limit=5 --json databaseId,conclusion | ConvertFrom-Json
-            $good = $runs | Where-Object { $_.conclusion -eq 'success' } | Select-Object -First 1
-            if (-not $good) { $good = $runs | Select-Object -First 1 }
-            $runId = $good.databaseId
-          }
-          Write-Host "Using run ID: $runId"
-          "RUN_ID=$runId" | Out-File -Append $env:GITHUB_ENV
+          RUN_ID="${{ github.event.inputs.run_id }}"
+          if [ -z "$RUN_ID" ]; then
+            RUN_ID=$(gh run list --workflow=windows-release --status=completed --limit=10 --json databaseId,conclusion -q '.[] | select(.conclusion=="success") | .databaseId' | head -1)
+          fi
+          echo "Downloading artifacts from run $RUN_ID"
+          mkdir -p setup-output
+          gh api "repos/${{ github.repository }}/actions/runs/$RUN_ID/artifacts" -q '.artifacts[] | select(.name=="BasaPOS-Setup") | .id' | while read ART_ID; do
+            gh api "repos/${{ github.repository }}/actions/artifacts/$ART_ID/zip" > artifact.zip
+            unzip -o artifact.zip -d setup-output/
+          done
+          ls -la setup-output/
 
-      - uses: actions/download-artifact@v4
-        with:
-          name: BasaPOS-Setup
-          path: setup-output
-          github-token: ${{ github.token }}
-          run-id: ${{ env.RUN_ID }}
-
-      - name: Installer drill
+      - name: Installer drill (install + boot-wrapper only)
         shell: pwsh
         run: |
           $exe = Get-ChildItem setup-output -Filter 'BasaPOS-Setup-*.exe' | Select-Object -First 1
-          if (-not $exe) { throw 'Setup exe not found in artifact' }
+          if (-not $exe) { throw "Setup exe not found. Contents: $(Get-ChildItem setup-output | Out-String)" }
           Write-Host "Drilling $($exe.Name)"
           powershell -NoProfile -ExecutionPolicy Bypass -File package/e2e/install-drill-minimal.ps1 -SetupExe $exe.FullName
 
       - name: Upload drill logs on failure
-        if: failure()
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: drill-debug-logs
