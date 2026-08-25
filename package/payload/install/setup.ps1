@@ -166,10 +166,7 @@ LOGFILE="$wslLogDir/restore-steps.log"
 ts() { date '+%Y-%m-%d %H:%M:%S'; }
 echo "`$(ts) restore-script started (pwd=`$(pwd) user=`$(whoami))" > "`$LOGFILE"
 cd /home/frappe/bench
-echo "`$(ts) stopping services..." >> "`$LOGFILE"
-systemctl stop basapos-worker-short basapos-worker-long basapos-scheduler basapos-socketio basapos-gunicorn >> "`$LOGFILE" 2>&1 || true
-sleep 2
-echo "`$(ts) services stopped, running bench restore..." >> "`$LOGFILE"
+echo "`$(ts) running bench restore..." >> "`$LOGFILE"
 su - frappe -c "$restoreCmd" >> "`$LOGFILE" 2>&1
 echo "`$(ts) restore exit: `$?" >> "`$LOGFILE"
 echo "`$(ts) running migrate..." >> "`$LOGFILE"
@@ -178,15 +175,16 @@ echo "`$(ts) migrate exit: `$?" >> "`$LOGFILE"
 echo "`$(ts) running clear-cache..." >> "`$LOGFILE"
 su - frappe -c "bench --site basapos.local clear-cache" >> "`$LOGFILE" 2>&1
 echo "`$(ts) clear-cache exit: `$?" >> "`$LOGFILE"
-# Post-restore site config (matching provision.sh create_site)
 echo "`$(ts) setting maintenance_mode=0, pause_scheduler=0..." >> "`$LOGFILE"
 su - frappe -c "bench --site basapos.local set-config -gp maintenance_mode 0" >> "`$LOGFILE" 2>&1
 su - frappe -c "bench --site basapos.local set-config -gp pause_scheduler 0" >> "`$LOGFILE" 2>&1
-echo "`$(ts) starting services..." >> "`$LOGFILE"
-systemctl start basapos-gunicorn basapos-socketio basapos-worker-short basapos-worker-long basapos-scheduler >> "`$LOGFILE" 2>&1
-echo "`$(ts) systemctl start exit: `$?" >> "`$LOGFILE"
-sleep 10
-echo "`$(ts) service status after start:" >> "`$LOGFILE"
+echo "`$(ts) resetting failed services..." >> "`$LOGFILE"
+systemctl reset-failed basapos-gunicorn basapos-socketio basapos-worker-short basapos-worker-long basapos-scheduler 2>&1 >> "`$LOGFILE" || true
+echo "`$(ts) restarting services..." >> "`$LOGFILE"
+systemctl restart basapos-gunicorn basapos-socketio basapos-worker-short basapos-worker-long basapos-scheduler >> "`$LOGFILE" 2>&1
+echo "`$(ts) systemctl restart exit: `$?" >> "`$LOGFILE"
+sleep 5
+echo "`$(ts) service status after restart:" >> "`$LOGFILE"
 for svc in basapos-gunicorn basapos-socketio basapos-worker-short basapos-worker-long basapos-scheduler; do
   echo "  `$svc: `$(systemctl is-active `$svc 2>&1)" >> "`$LOGFILE"
 done
