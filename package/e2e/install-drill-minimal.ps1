@@ -72,18 +72,14 @@ Write-Host '== 2. autostart wrapper reaches RUNNING =='
 # distro already running → boot-wrapper confirms site health → stamps RUNNING.
 Remove-Item "$AppDir\appliance-status.txt" -Force -ErrorAction SilentlyContinue
 $wrapper = Join-Path $AppDir "payload\install\boot-wrapper.ps1"
-$wrapperProc = Start-Process -FilePath "powershell.exe" `
-  -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$wrapper`"" `
-  -PassThru
-$deadline = (Get-Date).AddMinutes(8)
-$running = $false
-while ((Get-Date) -lt $deadline) {
-  $st = (Get-Content "$AppDir\appliance-status.txt" -ErrorAction SilentlyContinue) -join ''
-  if ("$st" -eq 'RUNNING') { $running = $true; break }
-  Start-Sleep -Seconds 10
-}
-Check 'boot-wrapper stamps RUNNING' $running
-if ($wrapperProc -and -not $wrapperProc.HasExited) { $wrapperProc | Stop-Process -Force -ErrorAction SilentlyContinue }
+Write-Host "Running boot-wrapper: $wrapper"
+Write-Host "boot-wrapper output follows:"
+& powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "& '$wrapper'"
+$wrapperExit = $LASTEXITCODE
+Write-Host "boot-wrapper exit code: $wrapperExit"
+$st = (Get-Content "$AppDir\appliance-status.txt" -ErrorAction SilentlyContinue) -join ''
+Write-Host "appliance-status.txt = '$st'"
+Check 'boot-wrapper stamps RUNNING' ("$st" -eq 'RUNNING')
 
 # Diagnostic dumps on failure
 Write-Host '--- appliance-status.txt ---'
