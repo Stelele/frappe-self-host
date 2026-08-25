@@ -238,7 +238,15 @@ try {
     & wsl.exe -d $script:Distro -- bash -c "timeout 60 systemctl is-system-running --wait" > $null 2>&1
     [System.IO.File]::AppendAllText($DebugFile, "$(Get-Date) PATH: distro booted, waiting for MariaDB`n")
     & wsl.exe -d $script:Distro -- bash -c "timeout 60 bash -c 'while ! mysqladmin ping --silent 2>/dev/null; do sleep 2; done'" > $null 2>&1
-    [System.IO.File]::AppendAllText($DebugFile, "$(Get-Date) PATH: MariaDB ready, restoring backup`n")
+    [System.IO.File]::AppendAllText($DebugFile, "$(Get-Date) PATH: MariaDB ready, probing bench`n")
+    $benchProbeLog = Join-Path (Join-Path $InstallRoot "logs") "bench-probe.log"
+    & wsl.exe -d $script:Distro -- bash -c "cd /home/frappe/bench && bench --version" > $benchProbeLog 2>&1
+    [System.IO.File]::AppendAllText($DebugFile, "$(Get-Date) PATH: bench probe exit=$LASTEXITCODE`n")
+    if (Test-Path $benchProbeLog) {
+      $bpTail = Get-Content $benchProbeLog -Tail 5 -ErrorAction SilentlyContinue
+      if ($bpTail) { [System.IO.File]::AppendAllText($DebugFile, "$(Get-Date) PATH: bench probe: $($bpTail -join ' | ')`n") }
+    }
+    [System.IO.File]::AppendAllText($DebugFile, "$(Get-Date) PATH: restoring backup`n")
     Restore-LatestBackup -Dest $backupDest
   } else {
     [System.IO.File]::AppendAllText($DebugFile, "$(Get-Date) PATH: entering FRESH install path`n")
