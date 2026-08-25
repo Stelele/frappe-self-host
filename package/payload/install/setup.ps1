@@ -151,14 +151,19 @@ function Restore-LatestBackup {
   $tars  = @(Get-ChildItem $Dest -Filter "*.tar")
   $priv  = $tars | Where-Object { $_.Name -match '-private-files\.tar$' } | Select-Object -Last 1
   $files = $tars | Where-Object { $_.Name -notmatch '-private-files\.tar$' } | Select-Object -Last 1
-  $cmd = "bench --site basapos.local restore '$inSql' --force"
+  $cmd = "bench --site basapos.local restore '$inSql' --force --db-root-username root --db-root-password 'BasaPOS-root-2026'"
   if ($files) { $cmd += " --with-public-files '" + (Convert-ToWslPath $files.FullName) + "'" }
   if ($priv)  { $cmd += " --with-private-files '" + (Convert-ToWslPath $priv.FullName) + "'" }
   $fullCmd = "cd /home/frappe/bench && $cmd && bench --site basapos.local migrate && bench --site basapos.local clear-cache"
   $logDir = Join-Path $InstallRoot "logs"
   $restoreLog = Join-Path $logDir "restore.log"
   Write-BasaLog "restore cmd: $fullCmd"
-  & wsl.exe -d $script:Distro -- bash -c $fullCmd > $restoreLog 2>&1
+  $wslExe = (Get-Command wsl.exe -ErrorAction SilentlyContinue).Source
+  if (-not $wslExe) { $wslExe = "wsl.exe" }
+  $batLine = "@echo off`r`nwsl.exe -d $($script:Distro) -- bash -c `"$($fullCmd -replace '"','\"')`""
+  $batFile = Join-Path $logDir "restore-run.bat"
+  [System.IO.File]::WriteAllText($batFile, $batLine, [System.Text.Encoding]::ASCII)
+  cmd.exe /c "`"$batFile`"" > $restoreLog 2>&1
   $exitCode = $LASTEXITCODE
   Write-BasaLog "restore wsl exit: $exitCode"
   if (Test-Path $restoreLog) {
