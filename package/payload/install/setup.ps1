@@ -42,6 +42,9 @@ Remove-Item $StatusFile -Force -ErrorAction SilentlyContinue
 # leftover SETUP_COMPLETE from a previous run.
 Remove-Item $StatusFile -Force -ErrorAction SilentlyContinue
 . (Join-Path $PSScriptRoot "common.ps1")
+# Prove file I/O works — drill reads this to confirm logs should be visible
+$diagFile = Join-Path $InstallRoot "setup-diag.txt"
+[System.IO.File]::WriteAllText($diagFile, "$(Get-Date) setup.ps1 started`n")
 Write-BasaLog "==== setup starting (AppDir=$InstallRoot Resume=$Resume Upgrade=$Upgrade) ===="
 
 function Set-SetupStatus([string]$s) { Set-Content -Path $StatusFile -Value $s -Encoding ascii }
@@ -162,37 +165,45 @@ function Restore-LatestBackup {
   $wslLogDir = Convert-ToWslPath $logDir
   $scriptContent = @"
 #!/bin/bash
+set -x
 LOGFILE="$wslLogDir/restore-steps.log"
-echo "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] restore-script started" > "$LOGFILE"
+ts() { date '+%Y-%m-%d %H:%M:%S'; }
+echo "`$(ts) restore-script started (pwd=`$(pwd) user=`$(whoami))" > "`$LOGFILE"
 cd /home/frappe/bench
-echo "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] running restore..." >> "$LOGFILE"
-su - frappe -c "$restoreCmd" >> "$LOGFILE" 2>&1
-echo "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] restore exit: `$?" >> "$LOGFILE"
-echo "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] running migrate..." >> "$LOGFILE"
-su - frappe -c "bench --site basapos.local migrate" >> "$LOGFILE" 2>&1
-echo "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] migrate exit: `$?" >> "$LOGFILE"
-echo "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] running clear-cache..." >> "$LOGFILE"
-su - frappe -c "bench --site basapos.local clear-cache" >> "$LOGFILE" 2>&1
-echo "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] clear-cache exit: `$?" >> "$LOGFILE"
-# Post-restore site config (matching provision.sh create_site)
-echo "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] setting maintenance_mode=0..." >> "$LOGFILE"
-su - frappe -c "bench --site basapos.local set-config -gp maintenance_mode 0" >> "$LOGFILE" 2>&1
-su - frappe -c "bench --site basapos.local set-config -gp pause_scheduler 0" >> "$LOGFILE" 2>&1
-echo "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] stopping services..." >> "$LOGFILE"
-systemctl stop basapos-worker-short basapos-worker-long basapos-scheduler basapos-socketio basapos-gunicorn 2>&1 || true
+echo "`$(ts) stopping services..." >> "`$LOGFILE"
+systemctl stop basapos-worker-short basapos-worker-long basapos-scheduler basapos-socketio basapos-gunicorn >> "`$LOGFILE" 2>&1 || true
 sleep 2
-echo "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] starting services..." >> "$LOGFILE"
-systemctl start basapos-gunicorn basapos-socketio basapos-worker-short basapos-worker-long basapos-scheduler 2>&1
-echo "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] systemctl start exit: `$?" >> "$LOGFILE"
-echo "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] waiting 15s for services to stabilize..." >> "$LOGFILE"
-sleep 15
-echo "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] service status:" >> "$LOGFILE"
+echo "`$(ts) services stopped, running bench restore..." >> "`$LOGFILE"
+su - frappe -c "$restoreCmd" >> "`$LOGFILE" 2>&1
+echo "`$(ts) restore exit: `$?" >> "`$LOGFILE"
+echo "`$(ts) running migrate..." >> "`$LOGFILE"
+su - frappe -c "bench --site basapos.local migrate" >> "`$LOGFILE" 2>&1
+echo "`$(ts) migrate exit: `$?" >> "`$LOGFILE"
+echo "`$(ts) running clear-cache..." >> "`$LOGFILE"
+su - frappe -c "bench --site basapos.local clear-cache" >> "`$LOGFILE" 2>&1
+echo "`$(ts) clear-cache exit: `$?" >> "`$LOGFILE"
+# Post-restore site config (matching provision.sh create_site)
+echo "`$(ts) setting maintenance_mode=0, pause_scheduler=0..." >> "`$LOGFILE"
+su - frappe -c "bench --site basapos.local set-config -gp maintenance_mode 0" >> "`$LOGFILE" 2>&1
+su - frappe -c "bench --site basapos.local set-config -gp pause_scheduler 0" >> "`$LOGFILE" 2>&1
+echo "`$(ts) starting services..." >> "`$LOGFILE"
+systemctl start basapos-gunicorn basapos-socketio basapos-worker-short basapos-worker-long basapos-scheduler >> "`$LOGFILE" 2>&1
+echo "`$(ts) systemctl start exit: `$?" >> "`$LOGFILE"
+sleep 10
+echo "`$(ts) service status after start:" >> "`$LOGFILE"
 for svc in basapos-gunicorn basapos-socketio basapos-worker-short basapos-worker-long basapos-scheduler; do
-  echo "  `$svc: `$(systemctl is-active `$svc 2>&1)" >> "$LOGFILE"
+  echo "  `$svc: `$(systemctl is-active `$svc 2>&1)" >> "`$LOGFILE"
 done
-echo "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] journal errors:" >> "$LOGFILE"
-journalctl -u basapos-gunicorn --no-pager -n 20 --since "5 min ago" >> "$LOGFILE" 2>&1
-echo "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] restore-script done" >> "$LOGFILE"
+echo "`$(ts) checking site health..." >> "`$LOGFILE"
+for i in 1 2 3 4 5 6; do
+  code=`$(curl -sk -o /dev/null -w '%{http_code}' https://basapos.local/api/method/ping 2>/dev/null || true)
+  echo "  attempt `$i: http `$code" >> "`$LOGFILE"
+  if [ "`$code" = "200" ]; then echo "`$(ts) site confirmed online" >> "`$LOGFILE"; break; fi
+  sleep 5
+done
+echo "`$(ts) journal errors (last 30 lines):" >> "`$LOGFILE"
+journalctl -u basapos-gunicorn --no-pager -n 30 --since "10 min ago" >> "`$LOGFILE" 2>&1
+echo "`$(ts) restore-script done" >> "`$LOGFILE"
 "@
   [System.IO.File]::WriteAllLines($tmpScript, $scriptContent)
   $wslScript = Convert-ToWslPath $tmpScript

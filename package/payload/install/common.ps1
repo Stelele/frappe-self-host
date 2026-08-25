@@ -12,7 +12,8 @@ function Write-BasaLog {
   # console output would fill an unread hidden-console buffer and deadlock
   # long operations - file-only. Interactive runs have no log file set.
   if ($env:BASA_LOG_FILE) {
-    Add-Content -Path $env:BASA_LOG_FILE -Value $line -Encoding ascii
+    # Use .NET directly — Add-Content buffers and may not flush before process exit.
+    [System.IO.File]::AppendAllText($env:BASA_LOG_FILE, $line + "`n")
   } else {
     Write-Host $line
   }

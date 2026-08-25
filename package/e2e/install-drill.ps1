@@ -36,6 +36,10 @@ function Invoke-SilentSetup([string]$logName) {
   Get-Content "$AppDir\logs\setup.log" -ErrorAction SilentlyContinue | Select-Object -Last 50
   Write-Host '--- restore.log (tail) ---'
   Get-Content "$AppDir\logs\restore.log" -ErrorAction SilentlyContinue | Select-Object -Last 50
+  Write-Host '--- restore-steps.log ---'
+  Get-Content "$AppDir\logs\restore-steps.log" -ErrorAction SilentlyContinue | Select-Object -Last 50
+  Write-Host '--- autostart.log ---'
+  Get-Content "$AppDir\logs\autostart.log" -ErrorAction SilentlyContinue | Select-Object -Last 30
   Write-Host '--- setup-diag.txt ---'
   Get-Content "$AppDir\setup-diag.txt" -ErrorAction SilentlyContinue
   Write-Host '--- setup-debug.txt ---'
