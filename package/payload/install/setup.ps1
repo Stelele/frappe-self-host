@@ -157,19 +157,20 @@ function Restore-LatestBackup {
   $logDir = Join-Path $InstallRoot "logs"
   $restoreLog = Join-Path $logDir "restore.log"
   Write-BasaLog "restore cmd: $cmd"
-  Write-BasaLog "restore log: $restoreLog"
   & wsl.exe -d $script:Distro -u frappe -- bash -c $cmd > $restoreLog 2>&1
-  if ($LASTEXITCODE -ne 0) {
-    $tail = Get-Content $restoreLog -Tail 20 -ErrorAction SilentlyContinue
-    Write-BasaLog "restore FAILED (exit $LASTEXITCODE). Last 20 lines: $tail"
-    throw "restore failed (exit $LASTEXITCODE)"
+  $exitCode = $LASTEXITCODE
+  Write-BasaLog "restore wsl exit: $exitCode"
+  if (Test-Path $restoreLog) {
+    $tail = Get-Content $restoreLog -Tail 30 -ErrorAction SilentlyContinue
+    if ($tail) { Write-BasaLog "restore log tail: $($tail -join '; ')" }
   }
+  if ($exitCode -ne 0) { throw "restore failed (exit $exitCode)" }
+
   Write-BasaLog "restore succeeded, running migrate"
-  $migrateCmd = "cd /home/frappe/bench && bench --site basapos.local migrate && bench --site basapos.local clear-cache"
-  & wsl.exe -d $script:Distro -u frappe -- bash -c $migrateCmd > $restoreLog 2>&1
+  & wsl.exe -d $script:Distro -u frappe -- bash -c "bench --site basapos.local migrate && bench --site basapos.local clear-cache" > $restoreLog 2>&1
   if ($LASTEXITCODE -ne 0) {
-    $tail = Get-Content $restoreLog -Tail 20 -ErrorAction SilentlyContinue
-    Write-BasaLog "migrate FAILED (exit $LASTEXITCODE). Last 20 lines: $tail"
+    $tail2 = Get-Content $restoreLog -Tail 20 -ErrorAction SilentlyContinue
+    Write-BasaLog "migrate FAILED (exit $LASTEXITCODE). Last 20 lines: $tail2"
     throw "post-restore migrate failed (exit $LASTEXITCODE)"
   }
   Write-BasaLog "restore complete"
