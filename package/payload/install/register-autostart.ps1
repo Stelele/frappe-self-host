@@ -1,5 +1,6 @@
-# Registers BasaPOS-Appliance scheduled task (S4U, system startup, installing user).
-# Use -LogonFallback on systems where S4U AtStartup is unavailable/restricted.
+# Registers BasaPOS-Appliance scheduled task (Interactive, system startup, installing user).
+# Interactive logon preserves the user's profile and environment — required for
+# WSL access and file I/O in the boot-wrapper. S4U strips the profile and breaks both.
 param(
   [Parameter(Mandatory=$true)][string]$InstallRoot,
   [switch]$LogonFallback
@@ -17,9 +18,9 @@ if ($LogonFallback) {
   $trigger.Delay = "PT30S"
 }
 $principal = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" `
-  -LogonType S4U -RunLevel Highest
+  -LogonType Interactive -RunLevel Highest
 
 Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false -ErrorAction SilentlyContinue
 Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger `
   -Principal $principal -Force | Out-Null
-Write-Host "Registered $TaskName (logon type: $(if($LogonFallback){'AtLogOn'}else{'S4U AtStartup'}))"
+Write-Host "Registered $TaskName (logon type: $(if($LogonFallback){'AtLogOn'}else{'Interactive AtStartup'}))"
