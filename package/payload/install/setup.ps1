@@ -151,15 +151,31 @@ function Restore-LatestBackup {
   $tars  = @(Get-ChildItem $Dest -Filter "*.tar")
   $priv  = $tars | Where-Object { $_.Name -match '-private-files\.tar$' } | Select-Object -Last 1
   $files = $tars | Where-Object { $_.Name -notmatch '-private-files\.tar$' } | Select-Object -Last 1
-  $cmd = "bench --site basapos.local restore '$inSql' --force --db-root-username root --db-root-password 'BasaPOS-root-2026'"
-  if ($files) { $cmd += " --with-public-files '" + (Convert-ToWslPath $files.FullName) + "'" }
-  if ($priv)  { $cmd += " --with-private-files '" + (Convert-ToWslPath $priv.FullName) + "'" }
-  $cmd += " && bench --site basapos.local migrate && bench --site basapos.local clear-cache"
+  $restoreCmd = "bench --site basapos.local restore '$inSql' --force --db-root-username root --db-root-password 'BasaPOS-root-2026'"
+  if ($files) { $restoreCmd += " --with-public-files '" + (Convert-ToWslPath $files.FullName) + "'" }
+  if ($priv)  { $restoreCmd += " --with-private-files '" + (Convert-ToWslPath $priv.FullName) + "'" }
   $logDir = Join-Path $InstallRoot "logs"
   $restoreLog = Join-Path $logDir "restore.log"
-  Write-BasaLog "restore cmd: $cmd"
-  $innerScript = "cd /home/frappe/bench && $cmd > /tmp/restore.log 2>&1; echo EXIT:$? >> /tmp/restore.log"
-  & wsl.exe -d $script:Distro -- bash -c $innerScript
+  Write-BasaLog "restore cmd: $restoreCmd"
+  # Write restore script to host, then copy into WSL via Convert-ToWslPath
+  $tmpScript = Join-Path $logDir "restore-script.sh"
+  $scriptContent = @"
+#!/bin/bash
+set -e
+cd /home/frappe/bench
+# bench commands run as frappe user (matching provision.sh)
+sudo -u frappe bash -lc "$restoreCmd"
+sudo -u frappe bash -lc "bench --site basapos.local migrate"
+sudo -u frappe bash -lc "bench --site basapos.local clear-cache"
+# Restart bench systemd units (needs root)
+systemctl restart basapos-gunicorn basapos-socketio basapos-worker-short basapos-worker-long basapos-scheduler
+"@
+  [System.IO.File]::WriteAllLines($tmpScript, $scriptContent)
+  $wslScript = Convert-ToWslPath $tmpScript
+  & wsl.exe -d $script:Distro -- bash -c "cp '$wslScript' /tmp/restore-script.sh && chmod +x /tmp/restore-script.sh"
+  # Run as frappe user (matching provision.sh pattern) for bench commands
+  # systemctl restart runs as root via sudo
+  & wsl.exe -d $script:Distro -- bash -c "su - frappe -c 'bash /tmp/restore-script.sh' > /tmp/restore.log 2>&1; echo WSL_EXIT:\$? >> /tmp/restore.log"
   $exitCode = $LASTEXITCODE
   $rawLog = & wsl.exe -d $script:Distro -- bash -c "cat /tmp/restore.log"
   [System.IO.File]::WriteAllLines($restoreLog, $rawLog)
