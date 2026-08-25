@@ -87,9 +87,31 @@ while ((Get-Date) -lt $deadline) {
   Start-Sleep -Seconds 10
 }
 Check 'boot-wrapper stamps RUNNING' $running
+if (-not $running) {
+  Write-Host '--- appliance-status.txt ---'
+  $apSt = Get-Content "$AppDir\appliance-status.txt" -ErrorAction SilentlyContinue
+  if ($apSt) { $apSt | ForEach-Object { Write-Host "  $_" } } else { Write-Host '  (empty or missing)' }
+  Write-Host '--- setup-debug.txt (post boot-wrapper) ---'
+  if (Test-Path "$AppDir\setup-debug.txt") {
+    $dbgRaw2 = [System.IO.File]::ReadAllBytes("$AppDir\setup-debug.txt")
+    Write-Host "  $($dbgRaw2.Length) bytes"
+    [System.IO.File]::ReadAllText("$AppDir\setup-debug.txt") -split "`n" | Select-Object -Last 30 | ForEach-Object { Write-Host "  $_" }
+  } else { Write-Host '  NOT FOUND' }
+  Write-Host '--- autostart.log ---'
+  $al2 = Get-Content "$AppDir\logs\autostart.log" -ErrorAction SilentlyContinue | Select-Object -Last 20
+  if ($al2) { $al2 | ForEach-Object { Write-Host "  $_" } } else { Write-Host '  (empty or missing)' }
+  Write-Host '--- journal errors ---'
+  & wsl.exe -d BasaPOS -u root -- bash -c "journalctl -u basapos-gunicorn --no-pager -n 20 --since '15 min ago' 2>/dev/null" 2>$null | ForEach-Object { Write-Host "  $_" }
+}
 
 # -------------------------------------------------------- 3 - UPGRADE DRILL
 Write-Host '== 3. upgrade drill (re-run setup) =='
+# Ensure WSL is running before upgrade (boot-wrapper may have left it dead)
+if (-not $running) {
+  Write-Host '  boot-wrapper failed — restarting WSL for upgrade test...'
+  & wsl.exe -d BasaPOS -u root --exec /bin/true 2>$null
+  Start-Sleep -Seconds 5
+}
 # Kill anything that could stall Inno's CloseApplications check
 $oldEap = $ErrorActionPreference
 $ErrorActionPreference = 'Continue'
