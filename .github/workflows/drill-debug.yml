@@ -1,0 +1,58 @@
+name: drill-debug
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: 'GitHub Actions run ID to reuse artifacts from (leave empty for latest)'
+        required: false
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  install-drill:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve run ID
+        shell: pwsh
+        run: |
+          $runId = '${{ github.event.inputs.run_id }}'
+          if (-not $runId) {
+            $runs = gh run list --workflow=windows-release --status=completed --limit=5 --json databaseId,conclusion | ConvertFrom-Json
+            $good = $runs | Where-Object { $_.conclusion -eq 'success' } | Select-Object -First 1
+            if (-not $good) { $good = $runs | Select-Object -First 1 }
+            $runId = $good.databaseId
+          }
+          Write-Host "Using run ID: $runId"
+          "RUN_ID=$runId" | Out-File -Append $env:GITHUB_ENV
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: BasaPOS-Setup
+          path: setup-output
+          github-token: ${{ github.token }}
+          run-id: ${{ env.RUN_ID }}
+
+      - name: Installer drill
+        shell: pwsh
+        run: |
+          $exe = Get-ChildItem setup-output -Filter 'BasaPOS-Setup-*.exe' | Select-Object -First 1
+          if (-not $exe) { throw 'Setup exe not found in artifact' }
+          Write-Host "Drilling $($exe.Name)"
+          powershell -NoProfile -ExecutionPolicy Bypass -File package/e2e/install-drill-minimal.ps1 -SetupExe $exe.FullName
+
+      - name: Upload drill logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: drill-debug-logs
+          path: |
+            ${{ runner.temp }}/inno-install.log
+            ${{ runner.temp }}/inno-upgrade.log
+            %LOCALAPPDATA%/Programs/BasaPOS/logs/**
+          if-no-files-found: ignore
