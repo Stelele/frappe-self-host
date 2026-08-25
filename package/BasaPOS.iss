@@ -106,8 +106,8 @@ begin
     Exec('powershell.exe', PsArgs, '', SW_HIDE, ewNoWait, ResultCode);
     SaveStringToFile(DiagFile, 'Exec returned ResultCode=' + IntToStr(ResultCode) + #13#10, True);
 
-    { Poll status file for a terminal state (max ~50 min = 600 * 5s). }
-    for I := 1 to 600 do
+    { Poll status file for a terminal state (max ~10 min = 120 * 5s). }
+    for I := 1 to 120 do
     begin
       Status := ReadStatus();
       if (I <= 5) or (I mod 20 = 0) or (Pos('SETUP_COMPLETE', Status) > 0) or (Pos('ERROR', Status) > 0) then

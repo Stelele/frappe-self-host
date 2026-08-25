@@ -157,17 +157,19 @@ function Restore-LatestBackup {
   $logDir = Join-Path $InstallRoot "logs"
   $restoreLog = Join-Path $logDir "restore.log"
   Write-BasaLog "restore cmd: $cmd"
-  & wsl.exe -d $script:Distro -u frappe -- bash -c $cmd > $restoreLog 2>&1
+  & wsl.exe -d $script:Distro -u frappe -- bash -c "timeout 180 $cmd" > $restoreLog 2>&1
   $exitCode = $LASTEXITCODE
   Write-BasaLog "restore wsl exit: $exitCode"
   if (Test-Path $restoreLog) {
     $tail = Get-Content $restoreLog -Tail 30 -ErrorAction SilentlyContinue
     if ($tail) { Write-BasaLog "restore log tail: $($tail -join '; ')" }
   }
+  if ($exitCode -eq 124) { throw "restore timed out (180s)" }
   if ($exitCode -ne 0) { throw "restore failed (exit $exitCode)" }
 
   Write-BasaLog "restore succeeded, running migrate"
-  & wsl.exe -d $script:Distro -u frappe -- bash -c "bench --site basapos.local migrate && bench --site basapos.local clear-cache" > $restoreLog 2>&1
+  & wsl.exe -d $script:Distro -u frappe -- bash -c "cd /home/frappe/bench && timeout 180 bench --site basapos.local migrate && bench --site basapos.local clear-cache" > $restoreLog 2>&1
+  if ($LASTEXITCODE -eq 124) { throw "migrate timed out (180s)" }
   if ($LASTEXITCODE -ne 0) {
     $tail2 = Get-Content $restoreLog -Tail 20 -ErrorAction SilentlyContinue
     Write-BasaLog "migrate FAILED (exit $LASTEXITCODE). Last 20 lines: $tail2"
@@ -240,9 +242,9 @@ try {
     [System.IO.File]::AppendAllText($DebugFile, "$(Get-Date) PATH: importing rootfs`n")
     Import-RootfsIfNeeded -Force
     [System.IO.File]::AppendAllText($DebugFile, "$(Get-Date) PATH: rootfs imported, booting distro`n")
-    & wsl.exe -d $script:Distro -- true > $null 2>&1
-    Start-Sleep -Seconds 10
-    & wsl.exe -d $script:Distro -- bash -c "systemctl is-system-running --wait" > $null 2>&1
+    & wsl.exe -d $script:Distro -- bash -c "timeout 30 true" > $null 2>&1
+    Start-Sleep -Seconds 5
+    & wsl.exe -d $script:Distro -- bash -c "timeout 60 systemctl is-system-running --wait" > $null 2>&1
     [System.IO.File]::AppendAllText($DebugFile, "$(Get-Date) PATH: distro booted, restoring backup`n")
     Restore-LatestBackup -Dest $backupDest
   } else {
