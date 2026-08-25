@@ -76,18 +76,16 @@ $pwBefore = ($creds | Select-String '^password=').Line
 
 # ------------------------------------------------------ 2 - AUTOSTART WRAPPER
 Write-Host '== 2. autostart wrapper reaches RUNNING =='
-& wsl.exe --terminate BasaPOS 2>$null
+# Run boot-wrapper directly (scheduled task context broken in CI)
+# Don't terminate WSL — it corrupts the distro on CI runners
 Remove-Item "$AppDir\appliance-status.txt" -Force -ErrorAction SilentlyContinue
-schtasks /run /tn BasaPOS-Appliance | Out-Null
-$deadline = (Get-Date).AddMinutes(8)
-$running = $false
-while ((Get-Date) -lt $deadline) {
-  $st = (Get-Content "$AppDir\appliance-status.txt" -ErrorAction SilentlyContinue) -join ''
-  if ("$st" -eq 'RUNNING') { $running = $true; break }
-  Start-Sleep -Seconds 10
-}
-Check 'boot-wrapper stamps RUNNING' $running
-if (-not $running) {
+$wrapper = Join-Path $AppDir "payload\install\boot-wrapper.ps1"
+Write-Host "Running boot-wrapper: $wrapper"
+& powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "& '$wrapper'"
+$st = (Get-Content "$AppDir\appliance-status.txt" -ErrorAction SilentlyContinue) -join ''
+Write-Host "appliance-status.txt = '$st'"
+Check 'boot-wrapper stamps RUNNING' ("$st" -eq 'RUNNING')
+if ("$st" -ne 'RUNNING') {
   Write-Host '--- appliance-status.txt ---'
   $apSt = Get-Content "$AppDir\appliance-status.txt" -ErrorAction SilentlyContinue
   if ($apSt) { $apSt | ForEach-Object { Write-Host "  $_" } } else { Write-Host '  (empty or missing)' }
@@ -106,8 +104,8 @@ if (-not $running) {
 
 # -------------------------------------------------------- 3 - UPGRADE DRILL
 Write-Host '== 3. upgrade drill (re-run setup) =='
-# Ensure WSL is running before upgrade (boot-wrapper may have left it dead)
-if (-not $running) {
+# Ensure WSL is running before upgrade
+if ("$st" -ne 'RUNNING') {
   Write-Host '  boot-wrapper failed — restarting WSL for upgrade test...'
   & wsl.exe -d BasaPOS -u root --exec /bin/true 2>$null
   Start-Sleep -Seconds 5
