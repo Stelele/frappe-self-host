@@ -199,14 +199,16 @@ echo "`$(ts) journal errors (last 30 lines):" >> "`$LOGFILE"
 journalctl -u basapos-gunicorn --no-pager -n 30 --since "10 min ago" >> "`$LOGFILE" 2>&1
 echo "`$(ts) restore-script done" >> "`$LOGFILE"
 "@
-  [System.IO.File]::WriteAllLines($tmpScript, $scriptContent)
+  # Write with LF only — WriteAllLines uses CRLF on Windows which breaks bash
+  $lfContent = $scriptContent -replace "`r`n", "`n"
+  [System.IO.File]::WriteAllText($tmpScript, $lfContent, [System.Text.UTF8Encoding]::new($false))
   $wslScript = Convert-ToWslPath $tmpScript
   & wsl.exe -d $script:Distro -- bash -c "cp '$wslScript' /tmp/restore-script.sh && chmod +x /tmp/restore-script.sh"
   # Run as root — su - frappe handles user switch for bench commands
-  & wsl.exe -d $script:Distro -- bash -c "bash /tmp/restore-script.sh > /tmp/restore.log 2>&1; echo WSL_EXIT:\$? >> /tmp/restore.log"
+  & wsl.exe -d $script:Distro -- bash -c "bash /tmp/restore-script.sh > /tmp/restore.log 2>&1; echo WSL_EXIT:`$? >> /tmp/restore.log"
   $exitCode = $LASTEXITCODE
   $rawLog = & wsl.exe -d $script:Distro -- bash -c "cat /tmp/restore.log"
-  [System.IO.File]::WriteAllLines($restoreLog, $rawLog)
+  [System.IO.File]::WriteAllText($restoreLog, ($rawLog -join "`n"), [System.Text.UTF8Encoding]::new($false))
   # Read restore steps log directly from Windows filesystem (written to logs/ by the script)
   $stepsLogFile = Join-Path $logDir "restore-steps.log"
   if (Test-Path $stepsLogFile) {
