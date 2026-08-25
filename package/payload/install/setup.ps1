@@ -154,32 +154,24 @@ function Restore-LatestBackup {
   $cmd = "cd /home/frappe/bench && bench --site basapos.local restore '$inSql' --force"
   if ($files) { $cmd += " --with-public-files '" + (Convert-ToWslPath $files.FullName) + "'" }
   if ($priv)  { $cmd += " --with-private-files '" + (Convert-ToWslPath $priv.FullName) + "'" }
-  $nullFile = Join-Path $env:TEMP "nul.txt"
-  if (-not (Test-Path $nullFile)) { Set-Content -Path $nullFile -Value "" -NoNewline }
-  $p = Start-Process cmd.exe -ArgumentList "/c wsl.exe -d $script:Distro -u frappe -- bash -c `"$cmd`" < `"$nullFile`" > `"$nullFile`" 2> `"$nullFile`"" -NoNewWindow -PassThru
-  $timeout = 900
-  $sw = [System.Diagnostics.Stopwatch]::StartNew()
-  while (-not $p.HasExited -and $sw.Elapsed.TotalSeconds -lt $timeout) {
-    Start-Sleep -Seconds 10
+  $logDir = Join-Path $InstallRoot "logs"
+  $restoreLog = Join-Path $logDir "restore.log"
+  Write-BasaLog "restore cmd: $cmd"
+  Write-BasaLog "restore log: $restoreLog"
+  & wsl.exe -d $script:Distro -u frappe -- bash -c $cmd > $restoreLog 2>&1
+  if ($LASTEXITCODE -ne 0) {
+    $tail = Get-Content $restoreLog -Tail 20 -ErrorAction SilentlyContinue
+    Write-BasaLog "restore FAILED (exit $LASTEXITCODE). Last 20 lines: $tail"
+    throw "restore failed (exit $LASTEXITCODE)"
   }
-  if (-not $p.HasExited) {
-    Write-BasaLog "FATAL: bench restore timed out after ${timeout}s"
-    $p.Kill()
-    throw "restore timed out"
-  }
-  if ($p.ExitCode -ne 0) { throw "restore failed (exit $($p.ExitCode))" }
+  Write-BasaLog "restore succeeded, running migrate"
   $migrateCmd = "cd /home/frappe/bench && bench --site basapos.local migrate && bench --site basapos.local clear-cache"
-  $p2 = Start-Process cmd.exe -ArgumentList "/c wsl.exe -d $script:Distro -u frappe -- bash -c `"$migrateCmd`" < `"$nullFile`" > `"$nullFile`" 2> `"$nullFile`"" -NoNewWindow -PassThru
-  $sw2 = [System.Diagnostics.Stopwatch]::StartNew()
-  while (-not $p2.HasExited -and $sw2.Elapsed.TotalSeconds -lt $timeout) {
-    Start-Sleep -Seconds 10
+  & wsl.exe -d $script:Distro -u frappe -- bash -c $migrateCmd > $restoreLog 2>&1
+  if ($LASTEXITCODE -ne 0) {
+    $tail = Get-Content $restoreLog -Tail 20 -ErrorAction SilentlyContinue
+    Write-BasaLog "migrate FAILED (exit $LASTEXITCODE). Last 20 lines: $tail"
+    throw "post-restore migrate failed (exit $LASTEXITCODE)"
   }
-  if (-not $p2.HasExited) {
-    Write-BasaLog "FATAL: bench migrate timed out after ${timeout}s"
-    $p2.Kill()
-    throw "migrate timed out"
-  }
-  if ($p2.ExitCode -ne 0) { throw "post-restore migrate failed (exit $($p2.ExitCode))" }
   Write-BasaLog "restore complete"
 }
 
