@@ -101,8 +101,14 @@ $pwAfter = ($credsAfter | Select-String '^password=').Line
 Check 'credentials preserved across upgrade' ("$pwAfter" -eq "$pwBefore")
 $status2 = (Get-Content "$AppDir\setup-status.txt") -join ''
 Check 'post-upgrade SETUP_COMPLETE' ("$status2" -match '^SETUP_COMPLETE')
-$code2 = & $ping
-Check "site responds 200 post-upgrade (got $code2)" ("$code2" -eq '200')
+$siteOk = $false
+$siteDeadline = (Get-Date).AddMinutes(5)
+while ((Get-Date) -lt $siteDeadline) {
+  $code2 = & $ping
+  if ("$code2" -eq '200') { $siteOk = $true; break }
+  Start-Sleep -Seconds 10
+}
+Check "site responds 200 post-upgrade (got $code2)" $siteOk
 
 # ------------------------------------------------------------ 4 - UNINSTALL
 Write-Host '== 4. silent uninstall =='

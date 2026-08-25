@@ -218,43 +218,22 @@ if (Test-RebootPending) {
 try {
   $backupDest = $null
   if ($isUpgrade) {
-    [System.IO.File]::AppendAllText($DebugFile, "$(Get-Date) PATH: entering UPGRADE path`n")
     try { $backupDest = Backup-SiteForUpgrade } catch { Write-BasaLog "FATAL: $($_.Exception.Message)"; Set-SetupStatus "ERROR_BACKUP"; exit 1 }
-    [System.IO.File]::AppendAllText($DebugFile, "$(Get-Date) PATH: backup done dest=$backupDest`n")
 
-    [System.IO.File]::AppendAllText($DebugFile, "$(Get-Date) PATH: unregistering distro`n")
     $unregJob = Start-Job -ScriptBlock { param($d) & wsl.exe --unregister $d 2>$null; $LASTEXITCODE } -ArgumentList $script:Distro
-    $unregTimeout = 120
-    $completed = Wait-Job $unregJob -Timeout $unregTimeout
-    if ($null -eq $completed) {
-      [System.IO.File]::AppendAllText($DebugFile, "$(Get-Date) PATH: unregister TIMED OUT after ${unregTimeout}s, stopping`n")
-      Stop-Job $unregJob
-    }
+    $completed = Wait-Job $unregJob -Timeout 120
+    if ($null -eq $completed) { Stop-Job $unregJob }
     $unregResult = Receive-Job $unregJob
     Remove-Job $unregJob -Force
-    [System.IO.File]::AppendAllText($DebugFile, "$(Get-Date) PATH: unregister exit $unregResult`n")
     if ($unregResult -ne 0) { Write-BasaLog "WARN: unregister exit $unregResult (continuing)" }
 
-    [System.IO.File]::AppendAllText($DebugFile, "$(Get-Date) PATH: importing rootfs`n")
     Import-RootfsIfNeeded -Force
-    [System.IO.File]::AppendAllText($DebugFile, "$(Get-Date) PATH: rootfs imported, booting distro`n")
     & wsl.exe -d $script:Distro -- bash -c "timeout 30 true" > $null 2>&1
     Start-Sleep -Seconds 5
     & wsl.exe -d $script:Distro -- bash -c "timeout 60 systemctl is-system-running --wait" > $null 2>&1
-    [System.IO.File]::AppendAllText($DebugFile, "$(Get-Date) PATH: distro booted, waiting for MariaDB`n")
     & wsl.exe -d $script:Distro -- bash -c "timeout 60 bash -c 'while ! mysqladmin ping --silent 2>/dev/null; do sleep 2; done'" > $null 2>&1
-    [System.IO.File]::AppendAllText($DebugFile, "$(Get-Date) PATH: MariaDB ready, probing bench`n")
-    $benchProbeLog = Join-Path (Join-Path $InstallRoot "logs") "bench-probe.log"
-    & wsl.exe -d $script:Distro -- bash -c "cd /home/frappe/bench && bench --version" > $benchProbeLog 2>&1
-    [System.IO.File]::AppendAllText($DebugFile, "$(Get-Date) PATH: bench probe exit=$LASTEXITCODE`n")
-    if (Test-Path $benchProbeLog) {
-      $bpTail = Get-Content $benchProbeLog -Tail 5 -ErrorAction SilentlyContinue
-      if ($bpTail) { [System.IO.File]::AppendAllText($DebugFile, "$(Get-Date) PATH: bench probe: $($bpTail -join ' | ')`n") }
-    }
-    [System.IO.File]::AppendAllText($DebugFile, "$(Get-Date) PATH: restoring backup`n")
     Restore-LatestBackup -Dest $backupDest
   } else {
-    [System.IO.File]::AppendAllText($DebugFile, "$(Get-Date) PATH: entering FRESH install path`n")
     Import-RootfsIfNeeded
     New-Credentials
   }
