@@ -159,31 +159,40 @@ function Restore-LatestBackup {
   Write-BasaLog "restore cmd: $restoreCmd"
   # Write restore script — runs as root, bench commands via su - frappe
   $tmpScript = Join-Path $logDir "restore-script.sh"
+  $wslLogDir = Convert-ToWslPath $logDir
   $scriptContent = @"
 #!/bin/bash
-echo "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] restore-script started" >> /tmp/restore-steps.log
+LOGFILE="$wslLogDir/restore-steps.log"
+echo "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] restore-script started" > "$LOGFILE"
 cd /home/frappe/bench
-echo "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] running restore..." >> /tmp/restore-steps.log
-su - frappe -c "$restoreCmd" >> /tmp/restore-steps.log 2>&1
-echo "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] restore exit: `$?" >> /tmp/restore-steps.log
-echo "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] running migrate..." >> /tmp/restore-steps.log
-su - frappe -c "bench --site basapos.local migrate" >> /tmp/restore-steps.log 2>&1
-echo "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] migrate exit: `$?" >> /tmp/restore-steps.log
-echo "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] running clear-cache..." >> /tmp/restore-steps.log
-su - frappe -c "bench --site basapos.local clear-cache" >> /tmp/restore-steps.log 2>&1
-echo "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] clear-cache exit: `$?" >> /tmp/restore-steps.log
+echo "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] running restore..." >> "$LOGFILE"
+su - frappe -c "$restoreCmd" >> "$LOGFILE" 2>&1
+echo "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] restore exit: `$?" >> "$LOGFILE"
+echo "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] running migrate..." >> "$LOGFILE"
+su - frappe -c "bench --site basapos.local migrate" >> "$LOGFILE" 2>&1
+echo "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] migrate exit: `$?" >> "$LOGFILE"
+echo "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] running clear-cache..." >> "$LOGFILE"
+su - frappe -c "bench --site basapos.local clear-cache" >> "$LOGFILE" 2>&1
+echo "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] clear-cache exit: `$?" >> "$LOGFILE"
 # Post-restore site config (matching provision.sh create_site)
-echo "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] setting maintenance_mode=0..." >> /tmp/restore-steps.log
-su - frappe -c "bench --site basapos.local set-config -gp maintenance_mode 0" >> /tmp/restore-steps.log 2>&1
-su - frappe -c "bench --site basapos.local set-config -gp pause_scheduler 0" >> /tmp/restore-steps.log 2>&1
-echo "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] restarting services..." >> /tmp/restore-steps.log
-systemctl restart basapos-gunicorn basapos-socketio basapos-worker-short basapos-worker-long basapos-scheduler 2>&1
-echo "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] systemctl exit: `$?" >> /tmp/restore-steps.log
-echo "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] waiting 30s for services to stabilize..." >> /tmp/restore-steps.log
-sleep 30
-echo "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] service status:" >> /tmp/restore-steps.log
-systemctl is-active basapos-gunicorn basapos-socketio basapos-worker-short basapos-worker-long basapos-scheduler >> /tmp/restore-steps.log 2>&1
-echo "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] restore-script done" >> /tmp/restore-steps.log
+echo "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] setting maintenance_mode=0..." >> "$LOGFILE"
+su - frappe -c "bench --site basapos.local set-config -gp maintenance_mode 0" >> "$LOGFILE" 2>&1
+su - frappe -c "bench --site basapos.local set-config -gp pause_scheduler 0" >> "$LOGFILE" 2>&1
+echo "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] stopping services..." >> "$LOGFILE"
+systemctl stop basapos-worker-short basapos-worker-long basapos-scheduler basapos-socketio basapos-gunicorn 2>&1 || true
+sleep 2
+echo "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] starting services..." >> "$LOGFILE"
+systemctl start basapos-gunicorn basapos-socketio basapos-worker-short basapos-worker-long basapos-scheduler 2>&1
+echo "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] systemctl start exit: `$?" >> "$LOGFILE"
+echo "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] waiting 15s for services to stabilize..." >> "$LOGFILE"
+sleep 15
+echo "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] service status:" >> "$LOGFILE"
+for svc in basapos-gunicorn basapos-socketio basapos-worker-short basapos-worker-long basapos-scheduler; do
+  echo "  `$svc: `$(systemctl is-active `$svc 2>&1)" >> "$LOGFILE"
+done
+echo "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] journal errors:" >> "$LOGFILE"
+journalctl -u basapos-gunicorn --no-pager -n 20 --since "5 min ago" >> "$LOGFILE" 2>&1
+echo "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] restore-script done" >> "$LOGFILE"
 "@
   [System.IO.File]::WriteAllLines($tmpScript, $scriptContent)
   $wslScript = Convert-ToWslPath $tmpScript
@@ -193,9 +202,12 @@ echo "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] restore-script done" >> /tmp/r
   $exitCode = $LASTEXITCODE
   $rawLog = & wsl.exe -d $script:Distro -- bash -c "cat /tmp/restore.log"
   [System.IO.File]::WriteAllLines($restoreLog, $rawLog)
-  # Dump per-step timing log (written by the script itself, not via PowerShell redirect)
-  $stepsLog = & wsl.exe -d $script:Distro -- bash -c "cat /tmp/restore-steps.log 2>/dev/null"
-  if ($stepsLog) { Write-BasaLog "restore steps: $($stepsLog -join '; ')" }
+  # Read restore steps log directly from Windows filesystem (written to logs/ by the script)
+  $stepsLogFile = Join-Path $logDir "restore-steps.log"
+  if (Test-Path $stepsLogFile) {
+    $stepsLog = Get-Content $stepsLogFile -ErrorAction SilentlyContinue
+    if ($stepsLog) { Write-BasaLog "restore steps: $($stepsLog -join '; ')" }
+  }
   Write-BasaLog "restore wsl exit: $exitCode"
   if (Test-Path $restoreLog) {
     $tail = Get-Content $restoreLog -Tail 30 -ErrorAction SilentlyContinue
