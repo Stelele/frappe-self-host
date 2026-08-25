@@ -164,7 +164,6 @@ function Restore-LatestBackup {
 echo "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] restore-script started" >> /tmp/restore-steps.log
 cd /home/frappe/bench
 echo "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] running restore..." >> /tmp/restore-steps.log
-# bench commands must run as frappe user (matching provision.sh)
 su - frappe -c "$restoreCmd" >> /tmp/restore-steps.log 2>&1
 echo "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] restore exit: `$?" >> /tmp/restore-steps.log
 echo "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] running migrate..." >> /tmp/restore-steps.log
@@ -173,10 +172,17 @@ echo "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] migrate exit: `$?" >> /tmp/res
 echo "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] running clear-cache..." >> /tmp/restore-steps.log
 su - frappe -c "bench --site basapos.local clear-cache" >> /tmp/restore-steps.log 2>&1
 echo "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] clear-cache exit: `$?" >> /tmp/restore-steps.log
+# Post-restore site config (matching provision.sh create_site)
+echo "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] setting maintenance_mode=0..." >> /tmp/restore-steps.log
+su - frappe -c "bench --site basapos.local set-config -gp maintenance_mode 0" >> /tmp/restore-steps.log 2>&1
+su - frappe -c "bench --site basapos.local set-config -gp pause_scheduler 0" >> /tmp/restore-steps.log 2>&1
 echo "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] restarting services..." >> /tmp/restore-steps.log
-# Restart bench systemd units (needs root)
 systemctl restart basapos-gunicorn basapos-socketio basapos-worker-short basapos-worker-long basapos-scheduler 2>&1
 echo "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] systemctl exit: `$?" >> /tmp/restore-steps.log
+echo "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] waiting 30s for services to stabilize..." >> /tmp/restore-steps.log
+sleep 30
+echo "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] service status:" >> /tmp/restore-steps.log
+systemctl is-active basapos-gunicorn basapos-socketio basapos-worker-short basapos-worker-long basapos-scheduler >> /tmp/restore-steps.log 2>&1
 echo "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] restore-script done" >> /tmp/restore-steps.log
 "@
   [System.IO.File]::WriteAllLines($tmpScript, $scriptContent)
@@ -196,6 +202,9 @@ echo "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] restore-script done" >> /tmp/r
     if ($tail) { Write-BasaLog "restore log tail: $($tail -join '; ')" }
   }
   if ($exitCode -ne 0) { throw "restore failed (exit $exitCode)" }
+  # Keep WSL alive: after setup.exe exits, no Windows process touches WSL.
+  # Without a foreground process, WSL shuts down and kills systemd + all services.
+  & wsl.exe -d $script:Distro -- bash -c "nohup bash -c 'while true; do sleep 60; done' >/dev/null 2>&1 &"
   Write-BasaLog "restore complete"
 }
 
