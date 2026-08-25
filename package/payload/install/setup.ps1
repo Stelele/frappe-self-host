@@ -154,7 +154,7 @@ function Restore-LatestBackup {
   $cmd = "bench --site basapos.local restore '$inSql' --force --db-root-username root --db-root-password 'BasaPOS-root-2026'"
   if ($files) { $cmd += " --with-public-files '" + (Convert-ToWslPath $files.FullName) + "'" }
   if ($priv)  { $cmd += " --with-private-files '" + (Convert-ToWslPath $priv.FullName) + "'" }
-  $cmd += " && bench --site basapos.local migrate && bench --site basapos.local clear-cache"
+  $cmd += " && bench --site basapos.local migrate && bench --site basapos.local clear-cache && bench restart"
   $logDir = Join-Path $InstallRoot "logs"
   $restoreLog = Join-Path $logDir "restore.log"
   Write-BasaLog "restore cmd: $cmd"
