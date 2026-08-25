@@ -2,22 +2,56 @@ param()
 # Boot wrapper: scheduled-task ACTION. Boots distro, polls health, stamps status.
 # Status states the launcher reads: STARTING / RUNNING / ERROR_WAKE / ERROR_HEALTH
 $ErrorActionPreference = "Continue"
-$InstallRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)   # {app}
+
+# --- Resolve paths (fallback if $PSScriptRoot is empty in S4U context) ---
+$ScriptDir = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Definition }
+if (-not $ScriptDir) { $ScriptDir = Join-Path (Split-Path -Parent $env:TEMP) "BasaPOS\install" }
+$InstallRoot = Split-Path -Parent (Split-Path -Parent $ScriptDir)   # {app}
+
+# Fallback: if InstallRoot doesn't look right, derive from scheduled task arg
+if (-not (Test-Path (Join-Path $InstallRoot "payload\install\boot-wrapper.ps1"))) {
+  $InstallRoot = Join-Path $env:LOCALAPPDATA "Programs\BasaPOS"
+}
+
 $StatusFile = Join-Path $InstallRoot "appliance-status.txt"
 $SettingsFile = Join-Path $InstallRoot "app\settings.txt"
 $env:BASA_LOG_FILE = Join-Path $InstallRoot "logs\autostart.log"
 $env:BASA_DEBUG_FILE = Join-Path $InstallRoot "setup-debug.txt"
-New-Item -ItemType Directory -Force -Path (Join-Path $InstallRoot "logs") | Out-Null
-. (Join-Path $PSScriptRoot "common.ps1")
+
+# Write status IMMEDIATELY to a known file so the drill can see we ran
+try {
+  "STARTING" | Out-File -FilePath $StatusFile -Encoding ascii -Force
+} catch {}
+
+# Also append to setup-debug.txt as a breadcrumb
+try {
+  $ts = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+  [System.IO.File]::AppendAllText($env:BASA_DEBUG_FILE, "$ts BOOT-WRAPPER ENTERED (ScriptDir=$ScriptDir InstallRoot=$InstallRoot)`n")
+} catch {}
+
+# Load common helpers
+$commonPath = Join-Path $ScriptDir "common.ps1"
+if (Test-Path $commonPath) {
+  . $commonPath
+} else {
+  try {
+    $ts = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+    [System.IO.File]::AppendAllText($env:BASA_DEBUG_FILE, "$ts BOOT-WRAPPER: common.ps1 not found at $commonPath`n")
+  } catch {}
+  Set-Content -Path $StatusFile -Value "ERROR_WAKE" -Encoding ascii
+  exit 1
+}
 
 function Set-Status([string]$s) { Set-Content -Path $StatusFile -Value $s -Encoding ascii }
 
-Set-Status "STARTING"
 Write-BasaLog "boot-wrapper: waking distro $script:Distro"
 
-# Boot attempt with up to 3 retries (covers VM cold starts / slow disks)
+# Boot attempt — try without -u root first (root user session may not work in S4U context)
 $woke = $false
 for ($i = 1; $i -le 3; $i++) {
+  # Try default user first (frappe), then root as fallback
+  & wsl.exe -d $script:Distro --exec /bin/true 2>$null | Out-Null
+  if ($LASTEXITCODE -eq 0) { $woke = $true; break }
   & wsl.exe -d $script:Distro -u root --exec /bin/true 2>$null | Out-Null
   if ($LASTEXITCODE -eq 0) { $woke = $true; break }
   Write-BasaLog "wake attempt $i failed; retrying in 15s"
