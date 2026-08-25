@@ -34,17 +34,13 @@ $env:BASA_LOG_FILE = Join-Path $InstallRoot "logs\setup.log"
 # Also write a debug file at a known path (the drill will hex-dump this)
 $DebugFile = Join-Path $InstallRoot "setup-debug.txt"
 [System.IO.File]::WriteAllText($DebugFile, "$(Get-Date) BOOT AppDir=$AppDir`n")
+# Also write logs to debug file as fallback (the logs/ subdir may not be visible)
+$env:BASA_DEBUG_FILE = $DebugFile
 # Clear stale status so Inno Setup's polling loop doesn't exit on a
 # leftover SETUP_COMPLETE from a previous run.
 $StatusFile = Join-Path $InstallRoot "setup-status.txt"
 Remove-Item $StatusFile -Force -ErrorAction SilentlyContinue
-# Clear stale status so Inno Setup's polling loop doesn't exit on a
-# leftover SETUP_COMPLETE from a previous run.
-Remove-Item $StatusFile -Force -ErrorAction SilentlyContinue
 . (Join-Path $PSScriptRoot "common.ps1")
-# Prove file I/O works — drill reads this to confirm logs should be visible
-$diagFile = Join-Path $InstallRoot "setup-diag.txt"
-[System.IO.File]::WriteAllText($diagFile, "$(Get-Date) setup.ps1 started`n")
 Write-BasaLog "==== setup starting (AppDir=$InstallRoot Resume=$Resume Upgrade=$Upgrade) ===="
 
 function Set-SetupStatus([string]$s) { Set-Content -Path $StatusFile -Value $s -Encoding ascii }

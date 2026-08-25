@@ -8,14 +8,13 @@ $script:BenchPath = "/home/frappe/bench"
 function Write-BasaLog {
   param([string]$Message)
   $line = "[{0}] {1}" -f (Get-Date -Format "yyyy-MM-dd HH:mm:ss"), $Message
-  # When BASA_LOG_FILE is set we're running headless (Inno/scheduled task):
-  # console output would fill an unread hidden-console buffer and deadlock
-  # long operations - file-only. Interactive runs have no log file set.
+  # Always write to the debug file (known to work in Inno Setup context)
+  if ($env:BASA_DEBUG_FILE) {
+    [System.IO.File]::AppendAllText($env:BASA_DEBUG_FILE, $line + "`n")
+  }
+  # Also write to the dedicated log file if available
   if ($env:BASA_LOG_FILE) {
-    # Use .NET directly — Add-Content buffers and may not flush before process exit.
-    [System.IO.File]::AppendAllText($env:BASA_LOG_FILE, $line + "`n")
-  } else {
-    Write-Host $line
+    try { [System.IO.File]::AppendAllText($env:BASA_LOG_FILE, $line + "`n") } catch {}
   }
 }
 

@@ -6,6 +6,7 @@ $InstallRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)   # {app}
 $StatusFile = Join-Path $InstallRoot "appliance-status.txt"
 $SettingsFile = Join-Path $InstallRoot "app\settings.txt"
 $env:BASA_LOG_FILE = Join-Path $InstallRoot "logs\autostart.log"
+$env:BASA_DEBUG_FILE = Join-Path $InstallRoot "setup-debug.txt"
 New-Item -ItemType Directory -Force -Path (Join-Path $InstallRoot "logs") | Out-Null
 . (Join-Path $PSScriptRoot "common.ps1")
 
@@ -27,6 +28,7 @@ if (-not $woke) { Set-Status "ERROR_WAKE"; exit 1 }
 $url = Get-SiteUrl -SettingsFile $SettingsFile
 Write-BasaLog "polling $url/api/method/ping"
 
+$restarted = $false
 $deadline = (Get-Date).AddMinutes(8)
 while ((Get-Date) -lt $deadline) {
   if (Test-SiteOnline -Url $url) {
@@ -41,6 +43,13 @@ while ((Get-Date) -lt $deadline) {
     }
     Set-Status "RUNNING"
     exit 0
+  }
+  # After 60s without a response, try restarting bench services once
+  if (-not $restarted -and ((Get-Date) -gt $deadline.AddMinutes(-7))) {
+    Write-BasaLog "site not responding after 60s — restarting bench services"
+    & wsl.exe -d $script:Distro -u root -- bash -c "systemctl restart basapos-gunicorn basapos-socketio basapos-worker-short basapos-worker-long basapos-scheduler 2>&1" 2>$null | Out-Null
+    $restarted = $true
+    Start-Sleep -Seconds 10
   }
   Start-Sleep -Seconds 10
 }

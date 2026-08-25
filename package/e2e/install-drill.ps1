@@ -31,25 +31,28 @@ function Invoke-SilentSetup([string]$logName) {
   }
   # Dump diagnostic context regardless of outcome
   Write-Host '--- setup-status.txt ---'
-  Get-Content "$AppDir\setup-status.txt" -ErrorAction SilentlyContinue | Select-Object -Last 5
-  Write-Host '--- setup.log (tail) ---'
-  Get-Content "$AppDir\logs\setup.log" -ErrorAction SilentlyContinue | Select-Object -Last 50
-  Write-Host '--- restore.log (tail) ---'
-  Get-Content "$AppDir\logs\restore.log" -ErrorAction SilentlyContinue | Select-Object -Last 50
-  Write-Host '--- restore-steps.log ---'
-  Get-Content "$AppDir\logs\restore-steps.log" -ErrorAction SilentlyContinue | Select-Object -Last 50
-  Write-Host '--- autostart.log ---'
-  Get-Content "$AppDir\logs\autostart.log" -ErrorAction SilentlyContinue | Select-Object -Last 30
-  Write-Host '--- setup-diag.txt ---'
-  Get-Content "$AppDir\setup-diag.txt" -ErrorAction SilentlyContinue
+  $s = Get-Content "$AppDir\setup-status.txt" -ErrorAction SilentlyContinue
+  if ($s) { $s | ForEach-Object { Write-Host "  $_" } } else { Write-Host '  (empty or missing)' }
   Write-Host '--- setup-debug.txt ---'
   if (Test-Path "$AppDir\setup-debug.txt") {
     $dbgRaw = [System.IO.File]::ReadAllBytes("$AppDir\setup-debug.txt")
     Write-Host "  $($dbgRaw.Length) bytes"
     Write-Host "  $([System.IO.File]::ReadAllText("$AppDir\setup-debug.txt"))"
   } else { Write-Host '  NOT FOUND' }
+  Write-Host '--- setup.log (tail) ---'
+  $lg = Get-Content "$AppDir\logs\setup.log" -ErrorAction SilentlyContinue | Select-Object -Last 50
+  if ($lg) { $lg | ForEach-Object { Write-Host "  $_" } } else { Write-Host '  (empty or missing)' }
+  Write-Host '--- restore.log (tail) ---'
+  $rl = Get-Content "$AppDir\logs\restore.log" -ErrorAction SilentlyContinue | Select-Object -Last 50
+  if ($rl) { $rl | ForEach-Object { Write-Host "  $_" } } else { Write-Host '  (empty or missing)' }
+  Write-Host '--- restore-steps.log ---'
+  $rs = Get-Content "$AppDir\logs\restore-steps.log" -ErrorAction SilentlyContinue | Select-Object -Last 50
+  if ($rs) { $rs | ForEach-Object { Write-Host "  $_" } } else { Write-Host '  (empty or missing)' }
+  Write-Host '--- autostart.log ---'
+  $al = Get-Content "$AppDir\logs\autostart.log" -ErrorAction SilentlyContinue | Select-Object -Last 30
+  if ($al) { $al | ForEach-Object { Write-Host "  $_" } } else { Write-Host '  (empty or missing)' }
   Write-Host '--- inno log (tail) ---'
-  Get-Content "$env:RUNNER_TEMP\$logName" -ErrorAction SilentlyContinue | Select-Object -Last 20
+  Get-Content "$env:RUNNER_TEMP\$logName" -ErrorAction SilentlyContinue | Select-Object -Last 20 | ForEach-Object { Write-Host "  $_" }
   return $p
 }
 
