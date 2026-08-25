@@ -10,6 +10,7 @@ $fail = 0
 function Check([string]$name, [bool]$ok) {
   if ($ok) { Write-Host "  [PASS] $name" } else { Write-Host "  [FAIL] $name"; $script:fail++ }
 }
+function Matches([string]$text, [string]$pat) { return [bool]($text -match $pat) }
 
 # ---- Step 1: Fresh install ----
 Write-Host '== 1. silent install =='
@@ -51,16 +52,16 @@ Get-Content "$env:RUNNER_TEMP\inno-install.log" -ErrorAction SilentlyContinue | 
 Check "setup exit 0 (got $($p.ExitCode))" ($p.ExitCode -eq 0)
 Check 'installed.txt marker' (Test-Path "$AppDir\installed.txt")
 $status1 = (Get-Content "$AppDir\setup-status.txt" -ErrorAction SilentlyContinue) -join ''
-Check "SETUP_COMPLETE (got: $status1)" ("$status1" -match '^SETUP_COMPLETE')
-Check 'hosts entry' ((Get-Content "$env:SystemRoot\System32\drivers\etc\hosts" -ErrorAction SilentlyContinue) -match 'basapos\.local')
+Check "SETUP_COMPLETE (got: $status1)" ([bool]("$status1" -match '^SETUP_COMPLETE'))
+Check 'hosts entry' ([bool]((Get-Content "$env:SystemRoot\System32\drivers\etc\hosts" -ErrorAction SilentlyContinue) -match 'basapos\.local'))
 $wslcfg = Get-Content "$env:USERPROFILE\.wslconfig" -ErrorAction SilentlyContinue | Out-String
-Check '.wslconfig idle timeouts disabled' (($wslcfg -match 'vmIdleTimeout=-1') -and ($wslcfg -match 'instanceIdleTimeout=-1'))
+Check '.wslconfig idle timeouts disabled' ([bool](($wslcfg -match 'vmIdleTimeout=-1') -and ($wslcfg -match 'instanceIdleTimeout=-1')))
 $taskQ = (schtasks /query /tn BasaPOS-Appliance 2>&1) -join ''
-Check 'autostart task registered' ("$taskQ" -match 'BasaPOS-Appliance')
+Check 'autostart task registered' ([bool]("$taskQ" -match 'BasaPOS-Appliance'))
 $creds = Get-Content "$AppDir\config\credentials.txt" -ErrorAction SilentlyContinue
-Check 'credentials generated (16-char pw)' (($creds -join "`n") -match 'password=\S{16}')
+Check 'credentials generated (16-char pw)' ([bool](($creds -join "`n") -match 'password=\S{16}'))
 $code = & $ping
-Check "site responds 200 from host (got $code)" ("$code" -eq '200')
+Check "site responds 200 from host (got $code)" ([bool]("$code" -eq '200'))
 
 # ---- Step 2: Boot-wrapper ----
 Write-Host '== 2. autostart wrapper reaches RUNNING =='
