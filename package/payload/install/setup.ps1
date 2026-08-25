@@ -157,28 +157,39 @@ function Restore-LatestBackup {
   $logDir = Join-Path $InstallRoot "logs"
   $restoreLog = Join-Path $logDir "restore.log"
   Write-BasaLog "restore cmd: $restoreCmd"
-  # Write restore script to host, then copy into WSL via Convert-ToWslPath
+  # Write restore script — runs as root, bench commands via su - frappe
   $tmpScript = Join-Path $logDir "restore-script.sh"
   $scriptContent = @"
 #!/bin/bash
-set -e
+echo "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] restore-script started" >> /tmp/restore-steps.log
 cd /home/frappe/bench
-# bench commands run as frappe user (matching provision.sh)
-sudo -u frappe bash -lc "$restoreCmd"
-sudo -u frappe bash -lc "bench --site basapos.local migrate"
-sudo -u frappe bash -lc "bench --site basapos.local clear-cache"
+echo "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] running restore..." >> /tmp/restore-steps.log
+# bench commands must run as frappe user (matching provision.sh)
+su - frappe -c "$restoreCmd" >> /tmp/restore-steps.log 2>&1
+echo "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] restore exit: `$?" >> /tmp/restore-steps.log
+echo "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] running migrate..." >> /tmp/restore-steps.log
+su - frappe -c "bench --site basapos.local migrate" >> /tmp/restore-steps.log 2>&1
+echo "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] migrate exit: `$?" >> /tmp/restore-steps.log
+echo "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] running clear-cache..." >> /tmp/restore-steps.log
+su - frappe -c "bench --site basapos.local clear-cache" >> /tmp/restore-steps.log 2>&1
+echo "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] clear-cache exit: `$?" >> /tmp/restore-steps.log
+echo "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] restarting services..." >> /tmp/restore-steps.log
 # Restart bench systemd units (needs root)
-systemctl restart basapos-gunicorn basapos-socketio basapos-worker-short basapos-worker-long basapos-scheduler
+systemctl restart basapos-gunicorn basapos-socketio basapos-worker-short basapos-worker-long basapos-scheduler 2>&1
+echo "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] systemctl exit: `$?" >> /tmp/restore-steps.log
+echo "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] restore-script done" >> /tmp/restore-steps.log
 "@
   [System.IO.File]::WriteAllLines($tmpScript, $scriptContent)
   $wslScript = Convert-ToWslPath $tmpScript
   & wsl.exe -d $script:Distro -- bash -c "cp '$wslScript' /tmp/restore-script.sh && chmod +x /tmp/restore-script.sh"
-  # Run as frappe user (matching provision.sh pattern) for bench commands
-  # systemctl restart runs as root via sudo
-  & wsl.exe -d $script:Distro -- bash -c "su - frappe -c 'bash /tmp/restore-script.sh' > /tmp/restore.log 2>&1; echo WSL_EXIT:\$? >> /tmp/restore.log"
+  # Run as root — su - frappe handles user switch for bench commands
+  & wsl.exe -d $script:Distro -- bash -c "bash /tmp/restore-script.sh > /tmp/restore.log 2>&1; echo WSL_EXIT:\$? >> /tmp/restore.log"
   $exitCode = $LASTEXITCODE
   $rawLog = & wsl.exe -d $script:Distro -- bash -c "cat /tmp/restore.log"
   [System.IO.File]::WriteAllLines($restoreLog, $rawLog)
+  # Dump per-step timing log (written by the script itself, not via PowerShell redirect)
+  $stepsLog = & wsl.exe -d $script:Distro -- bash -c "cat /tmp/restore-steps.log 2>/dev/null"
+  if ($stepsLog) { Write-BasaLog "restore steps: $($stepsLog -join '; ')" }
   Write-BasaLog "restore wsl exit: $exitCode"
   if (Test-Path $restoreLog) {
     $tail = Get-Content $restoreLog -Tail 30 -ErrorAction SilentlyContinue
