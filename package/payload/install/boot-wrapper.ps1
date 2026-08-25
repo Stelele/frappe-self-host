@@ -3,13 +3,18 @@ param()
 # Status states the launcher reads: STARTING / RUNNING / ERROR_WAKE / ERROR_HEALTH
 $ErrorActionPreference = "Continue"
 
-# --- Resolve paths (fallback if $PSScriptRoot is empty in S4U context) ---
-$ScriptDir = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Definition }
-if (-not $ScriptDir) { $ScriptDir = Join-Path (Split-Path -Parent $env:TEMP) "BasaPOS\install" }
-$InstallRoot = Split-Path -Parent (Split-Path -Parent $ScriptDir)   # {app}
-
-# Fallback: if InstallRoot doesn't look right, derive from scheduled task arg
-if (-not (Test-Path (Join-Path $InstallRoot "payload\install\boot-wrapper.ps1"))) {
+# --- Resolve install root ---
+# Priority: (1) hint file written by setup.ps1, (2) $PSScriptRoot, (3) LOCALAPPDATA fallback
+$InstallRoot = $null
+$hintFile = Join-Path $env:ProgramData "BasaPOS\install-root.txt"
+if (Test-Path $hintFile) {
+  $InstallRoot = (Get-Content $hintFile -ErrorAction SilentlyContinue | Select-Object -First 1).Trim()
+}
+if (-not $InstallRoot -or -not (Test-Path $InstallRoot)) {
+  $ScriptDir = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Definition }
+  if ($ScriptDir) { $InstallRoot = Split-Path -Parent (Split-Path -Parent $ScriptDir) }
+}
+if (-not $InstallRoot -or -not (Test-Path $InstallRoot)) {
   $InstallRoot = Join-Path $env:LOCALAPPDATA "Programs\BasaPOS"
 }
 
@@ -26,10 +31,11 @@ try {
 # Also append to setup-debug.txt as a breadcrumb
 try {
   $ts = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-  [System.IO.File]::AppendAllText($env:BASA_DEBUG_FILE, "$ts BOOT-WRAPPER ENTERED (ScriptDir=$ScriptDir InstallRoot=$InstallRoot)`n")
+  [System.IO.File]::AppendAllText($env:BASA_DEBUG_FILE, "$ts BOOT-WRAPPER ENTERED (InstallRoot=$InstallRoot)`n")
 } catch {}
 
 # Load common helpers
+$ScriptDir = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Definition }
 $commonPath = Join-Path $ScriptDir "common.ps1"
 if (Test-Path $commonPath) {
   . $commonPath
@@ -46,10 +52,9 @@ function Set-Status([string]$s) { Set-Content -Path $StatusFile -Value $s -Encod
 
 Write-BasaLog "boot-wrapper: waking distro $script:Distro"
 
-# Boot attempt — try without -u root first (root user session may not work in S4U context)
+# Boot attempt — try without -u root first (root user session may fail in S4U context)
 $woke = $false
 for ($i = 1; $i -le 3; $i++) {
-  # Try default user first (frappe), then root as fallback
   & wsl.exe -d $script:Distro --exec /bin/true 2>$null | Out-Null
   if ($LASTEXITCODE -eq 0) { $woke = $true; break }
   & wsl.exe -d $script:Distro -u root --exec /bin/true 2>$null | Out-Null
@@ -66,7 +71,6 @@ $restarted = $false
 $deadline = (Get-Date).AddMinutes(8)
 while ((Get-Date) -lt $deadline) {
   if (Test-SiteOnline -Url $url) {
-    # LAN_MODE hook (off by default): refresh portproxy so LAN terminals can reach us
     if ((Test-Path $SettingsFile) -and (Get-Content $SettingsFile | Select-String '^LAN_MODE=true')) {
       $ip = (Invoke-WslCaptured @("-d", $script:Distro, "-u", "root", "--", "hostname", "-I")).Trim().Split(" ")[0]
       if ($ip) {
@@ -78,7 +82,6 @@ while ((Get-Date) -lt $deadline) {
     Set-Status "RUNNING"
     exit 0
   }
-  # After 60s without a response, try restarting bench services once
   if (-not $restarted -and ((Get-Date) -gt $deadline.AddMinutes(-7))) {
     Write-BasaLog "site not responding after 60s — restarting bench services"
     & wsl.exe -d $script:Distro -u root -- bash -c "systemctl restart basapos-gunicorn basapos-socketio basapos-worker-short basapos-worker-long basapos-scheduler 2>&1" 2>$null | Out-Null

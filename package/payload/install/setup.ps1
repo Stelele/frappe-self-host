@@ -30,6 +30,10 @@ $ResumeTask = "BasaPOS-Setup-Resume"
 $RequiredFreeGB = 12
 
 New-Item -ItemType Directory -Force -Path $ConfigDir, (Join-Path $InstallRoot "logs") | Out-Null
+# Write install root to a system-wide location so boot-wrapper can find it in S4U context
+$bootHint = Join-Path $env:ProgramData "BasaPOS"
+New-Item -ItemType Directory -Force -Path $bootHint | Out-Null
+Set-Content -Path (Join-Path $bootHint "install-root.txt") -Value $InstallRoot -Encoding ascii -Force
 $env:BASA_LOG_FILE = Join-Path $InstallRoot "logs\setup.log"
 # Also write a debug file at a known path (the drill will hex-dump this)
 $DebugFile = Join-Path $InstallRoot "setup-debug.txt"
