@@ -4,17 +4,18 @@
 $script:Distro = "BasaPOS"
 $script:Domain = "basapos.local"
 $script:BenchPath = "/home/frappe/bench"
+$script:LF = [char]10
 
 function Write-BasaLog {
   param([string]$Message)
   $line = "[{0}] {1}" -f (Get-Date -Format "yyyy-MM-dd HH:mm:ss"), $Message
   # Always write to the debug file (known to work in Inno Setup context)
   if ($env:BASA_DEBUG_FILE) {
-    [System.IO.File]::AppendAllText($env:BASA_DEBUG_FILE, $line + "`n")
+    [System.IO.File]::AppendAllText($env:BASA_DEBUG_FILE, $line + $script:LF)
   }
   # Also write to the dedicated log file if available
   if ($env:BASA_LOG_FILE) {
-    try { [System.IO.File]::AppendAllText($env:BASA_LOG_FILE, $line + "`n") } catch {}
+    try { [System.IO.File]::AppendAllText($env:BASA_LOG_FILE, $line + $script:LF) } catch {}
   }
 }
 
@@ -36,7 +37,7 @@ function Invoke-WslCaptured {
   try {
     $out = & wsl.exe @WslArgs 2>$null
     if ($null -eq $out) { return "" }
-    return ([System.Text.Encoding]::Unicode.GetString([System.Text.Encoding]::Default.GetBytes(($out -join "`n"))))
+    return ([System.Text.Encoding]::Unicode.GetString([System.Text.Encoding]::Default.GetBytes(($out -join $script:LF))))
   } finally { $ErrorActionPreference = $old }
 }
 

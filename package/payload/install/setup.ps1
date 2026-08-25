@@ -37,7 +37,7 @@ Set-Content -Path (Join-Path $bootHint "install-root.txt") -Value $InstallRoot -
 $env:BASA_LOG_FILE = Join-Path $InstallRoot "logs\setup.log"
 # Also write a debug file at a known path (the drill will hex-dump this)
 $DebugFile = Join-Path $InstallRoot "setup-debug.txt"
-[System.IO.File]::WriteAllText($DebugFile, "$(Get-Date) BOOT AppDir=$AppDir`n")
+[System.IO.File]::WriteAllText($DebugFile, (Get-Date).ToString() + " BOOT AppDir=" + $AppDir + "`n")
 # Also write logs to debug file as fallback (the logs/ subdir may not be visible)
 $env:BASA_DEBUG_FILE = $DebugFile
 # Clear stale status so Inno Setup's polling loop doesn't exit on a
@@ -114,7 +114,7 @@ function New-Credentials {
     $bytes = New-Object byte[] 16
     [System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($bytes)
     $pw = ([convert]::ToBase64String($bytes) -replace '[+/=]', '').Substring(0, 16)
-    Set-Content -Path $CredsFile -Value "user=$($script:Distro)`nadmin_user=Administrator`npassword=$pw" -Encoding ascii
+    Set-Content -Path $CredsFile -Value ("user=" + $script:Distro + [char]10 + "admin_user=Administrator" + [char]10 + "password=" + $pw) -Encoding ascii
     icacls $CredsFile /inheritance:r /grant:r "$env:USERNAME`:F" | Out-Null
     Write-BasaLog "generated admin password -> config\credentials.txt"
   }
@@ -208,7 +208,7 @@ echo "`$(ts) restore-script done" >> "`$LOGFILE"
   [System.IO.File]::WriteAllText($tmpScript, $lfContent, [System.Text.UTF8Encoding]::new($false))
   $wslScript = Convert-ToWslPath $tmpScript
   & wsl.exe -d $script:Distro -- bash -c "cp '$wslScript' /tmp/restore-script.sh && chmod +x /tmp/restore-script.sh"
-  # Run as root — su - frappe handles user switch for bench commands
+  # Run as root - su - frappe handles user switch for bench commands
   & wsl.exe -d $script:Distro -- bash -c "bash /tmp/restore-script.sh > /tmp/restore.log 2>&1; echo WSL_EXIT:`$? >> /tmp/restore.log"
   $exitCode = $LASTEXITCODE
   $rawLog = & wsl.exe -d $script:Distro -- bash -c "cat /tmp/restore.log"
@@ -247,11 +247,11 @@ function Register-ResumeTask {
 # of what the ISS passes.  The ISS [Code] section's FileExists check may not
 # work in all elevated contexts.
 if (-not $Upgrade -and (Test-Path $InstalledMarker)) {
-  [System.IO.File]::AppendAllText($DebugFile, "$(Get-Date) UPGRADE-DETECT: installed.txt found`n")
+  [System.IO.File]::AppendAllText($DebugFile, (Get-Date).ToString() + " UPGRADE-DETECT: installed.txt found`n")
   $Upgrade = $true
 }
 $isUpgrade = $Upgrade -or ((Test-Path $InstalledMarker) -and (Test-DistroPresent -InstallRoot $InstallRoot))
-[System.IO.File]::AppendAllText($DebugFile, "$(Get-Date) UPGRADE-DETECT: Upgrade=$Upgrade isUpgrade=$isUpgrade`n")
+[System.IO.File]::AppendAllText($DebugFile, (Get-Date).ToString() + " UPGRADE-DETECT: Upgrade=" + $Upgrade + " isUpgrade=" + $isUpgrade + "`n")
 
 if ($Resume -and (Test-Path $InstalledMarker) -and (Test-Path $StatusFile) -and
     ((Get-Content $StatusFile -ErrorAction SilentlyContinue) -match 'SETUP_COMPLETE')) {
@@ -317,7 +317,7 @@ try {
   if ($online) { Write-BasaLog "site online" } else { Write-BasaLog "WARN: site not yet online; autostart will finish booting" }
 
   New-Item -ItemType File -Path $InstalledMarker -Force | Out-Null
-  [System.IO.File]::AppendAllText($DebugFile, "$(Get-Date) FINAL: online=$online isUpgrade=$isUpgrade`n")
+  [System.IO.File]::AppendAllText($DebugFile, (Get-Date).ToString() + " FINAL: online=" + $online + " isUpgrade=" + $isUpgrade + "`n")
   if ($online) { Set-SetupStatus "SETUP_COMPLETE" }
   else { Set-SetupStatus "SETUP_COMPLETE_DEGRADED" }
   Unregister-ScheduledTask -TaskName $ResumeTask -Confirm:$false -ErrorAction SilentlyContinue

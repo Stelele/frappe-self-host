@@ -2,6 +2,7 @@ param()
 # Boot wrapper: scheduled-task ACTION. Boots distro, polls health, stamps status.
 # Status states the launcher reads: STARTING / RUNNING / ERROR_WAKE / ERROR_HEALTH
 $ErrorActionPreference = "Continue"
+$LF = [char]10
 
 # --- Resolve install root ---
 # Priority: (1) hint file written by setup.ps1, (2) $PSScriptRoot, (3) LOCALAPPDATA fallback
@@ -31,7 +32,7 @@ try {
 # Also append to setup-debug.txt as a breadcrumb
 try {
   $ts = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-  [System.IO.File]::AppendAllText($env:BASA_DEBUG_FILE, "$ts BOOT-WRAPPER ENTERED (InstallRoot=$InstallRoot)`n")
+  [System.IO.File]::AppendAllText($env:BASA_DEBUG_FILE, $ts + " BOOT-WRAPPER ENTERED (InstallRoot=" + $InstallRoot + ")" + $LF)
 } catch {}
 
 # Load common helpers
@@ -42,7 +43,7 @@ if (Test-Path $commonPath) {
 } else {
   try {
     $ts = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-    [System.IO.File]::AppendAllText($env:BASA_DEBUG_FILE, "$ts BOOT-WRAPPER: common.ps1 not found at $commonPath`n")
+    [System.IO.File]::AppendAllText($env:BASA_DEBUG_FILE, $ts + " BOOT-WRAPPER: common.ps1 not found at " + $commonPath + $LF)
   } catch {}
   Set-Content -Path $StatusFile -Value "ERROR_WAKE" -Encoding ascii
   exit 1
@@ -52,7 +53,7 @@ function Set-Status([string]$s) { Set-Content -Path $StatusFile -Value $s -Encod
 
 Write-BasaLog "boot-wrapper: waking distro $script:Distro"
 
-# Boot attempt — try without -u root first (root user session may fail in S4U context)
+# Boot attempt - try without -u root first (root user session may fail in S4U context)
 $woke = $false
 for ($i = 1; $i -le 3; $i++) {
   & wsl.exe -d $script:Distro --exec /bin/true 2>$null | Out-Null
@@ -83,7 +84,7 @@ while ((Get-Date) -lt $deadline) {
     exit 0
   }
   if (-not $restarted -and ((Get-Date) -gt $deadline.AddMinutes(-7))) {
-    Write-BasaLog "site not responding after 60s — restarting bench services"
+    Write-BasaLog "site not responding after 60s - restarting bench services"
     & wsl.exe -d $script:Distro -u root -- bash -c "systemctl restart basapos-gunicorn basapos-socketio basapos-worker-short basapos-worker-long basapos-scheduler 2>&1" 2>$null | Out-Null
     $restarted = $true
     Start-Sleep -Seconds 10
