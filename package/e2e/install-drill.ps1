@@ -22,10 +22,10 @@ function Invoke-SilentSetup([string]$logName) {
   $p = Start-Process -FilePath $SetupExe `
     -ArgumentList '/VERYSILENT','/NORESTART','/SUPPRESSMSGBOXES','/FORCECLOSEAPPLICATIONS',"/LOG=$env:RUNNER_TEMP\$logName" `
     -PassThru
-  # 10 min timeout
-  $killed = -not $p.WaitForExit(600000)
+  # 15 min timeout
+  $killed = -not $p.WaitForExit(900000)
   if ($killed) {
-    Write-Host "  [TIMEOUT] setup.exe did not exit in 10 min - killing"
+    Write-Host "  [TIMEOUT] setup.exe did not exit in 15 min - killing"
     $p | Stop-Process -Force -ErrorAction SilentlyContinue
     Start-Sleep 2
   }

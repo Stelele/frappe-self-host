@@ -236,7 +236,9 @@ try {
     & wsl.exe -d $script:Distro -- bash -c "timeout 30 true" > $null 2>&1
     Start-Sleep -Seconds 5
     & wsl.exe -d $script:Distro -- bash -c "timeout 60 systemctl is-system-running --wait" > $null 2>&1
-    [System.IO.File]::AppendAllText($DebugFile, "$(Get-Date) PATH: distro booted, restoring backup`n")
+    [System.IO.File]::AppendAllText($DebugFile, "$(Get-Date) PATH: distro booted, waiting for MariaDB`n")
+    & wsl.exe -d $script:Distro -- bash -c "timeout 60 bash -c 'while ! mysqladmin ping --silent 2>/dev/null; do sleep 2; done'" > $null 2>&1
+    [System.IO.File]::AppendAllText($DebugFile, "$(Get-Date) PATH: MariaDB ready, restoring backup`n")
     Restore-LatestBackup -Dest $backupDest
   } else {
     [System.IO.File]::AppendAllText($DebugFile, "$(Get-Date) PATH: entering FRESH install path`n")
