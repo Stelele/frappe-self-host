@@ -157,23 +157,37 @@ function Restore-LatestBackup {
   $logDir = Join-Path $InstallRoot "logs"
   $restoreLog = Join-Path $logDir "restore.log"
   Write-BasaLog "restore cmd: $cmd"
-  & wsl.exe -d $script:Distro -u frappe -- bash -c "timeout 180 $cmd" > $restoreLog 2>&1
-  $exitCode = $LASTEXITCODE
+  $restoreJob = Start-Job -ScriptBlock { param($d,$c,$log) & wsl.exe -d $d -u frappe -- bash -c $c > $log 2>&1; $LASTEXITCODE } -ArgumentList $script:Distro, $cmd, $restoreLog
+  if (-not (Wait-Job $restoreJob -Timeout 300)) {
+    Write-BasaLog "FATAL: bench restore timed out (300s), stopping job"
+    Stop-Job $restoreJob
+    Remove-Job $restoreJob -Force
+    throw "restore timed out (300s)"
+  }
+  $exitCode = Receive-Job $restoreJob
+  Remove-Job $restoreJob -Force
   Write-BasaLog "restore wsl exit: $exitCode"
   if (Test-Path $restoreLog) {
     $tail = Get-Content $restoreLog -Tail 30 -ErrorAction SilentlyContinue
     if ($tail) { Write-BasaLog "restore log tail: $($tail -join '; ')" }
   }
-  if ($exitCode -eq 124) { throw "restore timed out (180s)" }
   if ($exitCode -ne 0) { throw "restore failed (exit $exitCode)" }
 
   Write-BasaLog "restore succeeded, running migrate"
-  & wsl.exe -d $script:Distro -u frappe -- bash -c "cd /home/frappe/bench && timeout 180 bench --site basapos.local migrate && bench --site basapos.local clear-cache" > $restoreLog 2>&1
-  if ($LASTEXITCODE -eq 124) { throw "migrate timed out (180s)" }
-  if ($LASTEXITCODE -ne 0) {
+  $migrateCmd = "cd /home/frappe/bench && bench --site basapos.local migrate && bench --site basapos.local clear-cache"
+  $migrateJob = Start-Job -ScriptBlock { param($d,$c,$log) & wsl.exe -d $d -u frappe -- bash -c $c > $log 2>&1; $LASTEXITCODE } -ArgumentList $script:Distro, $migrateCmd, $restoreLog
+  if (-not (Wait-Job $migrateJob -Timeout 300)) {
+    Write-BasaLog "FATAL: bench migrate timed out (300s)"
+    Stop-Job $migrateJob
+    Remove-Job $migrateJob -Force
+    throw "migrate timed out (300s)"
+  }
+  $migrateExit = Receive-Job $migrateJob
+  Remove-Job $migrateJob -Force
+  if ($migrateExit -ne 0) {
     $tail2 = Get-Content $restoreLog -Tail 20 -ErrorAction SilentlyContinue
-    Write-BasaLog "migrate FAILED (exit $LASTEXITCODE). Last 20 lines: $tail2"
-    throw "post-restore migrate failed (exit $LASTEXITCODE)"
+    Write-BasaLog "migrate FAILED (exit $migrateExit). Last 20 lines: $tail2"
+    throw "post-restore migrate failed (exit $migrateExit)"
   }
   Write-BasaLog "restore complete"
 }
@@ -245,7 +259,15 @@ try {
     & wsl.exe -d $script:Distro -- bash -c "timeout 30 true" > $null 2>&1
     Start-Sleep -Seconds 5
     & wsl.exe -d $script:Distro -- bash -c "timeout 60 systemctl is-system-running --wait" > $null 2>&1
-    [System.IO.File]::AppendAllText($DebugFile, "$(Get-Date) PATH: distro booted, restoring backup`n")
+    [System.IO.File]::AppendAllText($DebugFile, "$(Get-Date) PATH: distro booted, probing frappe user`n")
+    $probeLog = Join-Path (Join-Path $InstallRoot "logs") "probe.log"
+    & wsl.exe -d $script:Distro -u frappe -- bash -c "echo PROBE_OK && id && pwd" > $probeLog 2>&1
+    [System.IO.File]::AppendAllText($DebugFile, "$(Get-Date) PATH: frappe probe exit=$LASTEXITCODE`n")
+    if (Test-Path $probeLog) {
+      $probeTail = Get-Content $probeLog -Tail 5 -ErrorAction SilentlyContinue
+      if ($probeTail) { [System.IO.File]::AppendAllText($DebugFile, "$(Get-Date) PATH: probe output: $($probeTail -join ' | ')`n") }
+    }
+    [System.IO.File]::AppendAllText($DebugFile, "$(Get-Date) PATH: restoring backup`n")
     Restore-LatestBackup -Dest $backupDest
   } else {
     [System.IO.File]::AppendAllText($DebugFile, "$(Get-Date) PATH: entering FRESH install path`n")
