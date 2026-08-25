@@ -238,7 +238,11 @@ try {
 
     [System.IO.File]::AppendAllText($DebugFile, "$(Get-Date) PATH: importing rootfs`n")
     Import-RootfsIfNeeded -Force
-    [System.IO.File]::AppendAllText($DebugFile, "$(Get-Date) PATH: rootfs imported, restoring backup`n")
+    [System.IO.File]::AppendAllText($DebugFile, "$(Get-Date) PATH: rootfs imported, booting distro`n")
+    & wsl.exe -d $script:Distro -- true > $null 2>&1
+    Start-Sleep -Seconds 10
+    & wsl.exe -d $script:Distro -- bash -c "systemctl is-system-running --wait" > $null 2>&1
+    [System.IO.File]::AppendAllText($DebugFile, "$(Get-Date) PATH: distro booted, restoring backup`n")
     Restore-LatestBackup -Dest $backupDest
   } else {
     [System.IO.File]::AppendAllText($DebugFile, "$(Get-Date) PATH: entering FRESH install path`n")
