@@ -65,10 +65,14 @@ Check "site responds 200 from host (got $code)" ([bool]("$code" -eq '200'))
 
 # ---- Step 2: Boot-wrapper ----
 Write-Host '== 2. autostart wrapper reaches RUNNING =='
+# Run boot-wrapper directly (scheduled task context broken in CI S4U/Interactive)
 & wsl.exe --terminate BasaPOS 2>$null
 Start-Sleep -Seconds 3
 Remove-Item "$AppDir\appliance-status.txt" -Force -ErrorAction SilentlyContinue
-schtasks /run /tn BasaPOS-Appliance 2>$null | Out-Null
+$wrapper = Join-Path $AppDir "payload\install\boot-wrapper.ps1"
+$wrapperProc = Start-Process -FilePath "powershell.exe" `
+  -ArgumentList "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$wrapper`"" `
+  -PassThru
 $deadline = (Get-Date).AddMinutes(8)
 $running = $false
 while ((Get-Date) -lt $deadline) {
@@ -77,6 +81,7 @@ while ((Get-Date) -lt $deadline) {
   Start-Sleep -Seconds 10
 }
 Check 'boot-wrapper stamps RUNNING' $running
+if ($wrapperProc -and -not $wrapperProc.HasExited) { $wrapperProc | Stop-Process -Force -ErrorAction SilentlyContinue }
 
 # Diagnostic dumps on failure
 Write-Host '--- appliance-status.txt ---'
