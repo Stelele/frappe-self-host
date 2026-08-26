@@ -97,7 +97,7 @@ jobs:
           $exe = Get-ChildItem setup-output -Filter 'BasaPOS-Setup-*.exe' | Select-Object -First 1
           if (-not $exe) { throw 'Setup exe not found in artifact' }
           Write-Host "Drilling $($exe.Name)"
-          powershell -NoProfile -ExecutionPolicy Bypass -File package/e2e/install-drill.ps1 -SetupExe $exe.FullName
+          pwsh -NoProfile -ExecutionPolicy Bypass -File package/e2e/install-drill.ps1 -SetupExe $exe.FullName
 
       - name: Upload drill logs on failure
         if: failure()
