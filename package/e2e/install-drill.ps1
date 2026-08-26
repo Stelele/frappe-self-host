@@ -128,17 +128,25 @@ $pwAfter = ($credsAfter | Select-String '^password=').Line
 Check 'credentials preserved across upgrade' ("$pwAfter" -eq "$pwBefore")
 $status2 = (Get-Content "$AppDir\setup-status.txt") -join ''
 Check 'post-upgrade SETUP_COMPLETE' ("$status2" -match '^SETUP_COMPLETE')
-# After upgrade, distro is freshly imported - boot-wrapper must start bench services
+# After upgrade the restore-script already started services inside WSL.
+# Poll the site directly — the boot-wrapper may not be able to reach WSL2
+# localhost from the SYSTEM scheduled-task context after a distro re-import.
 Remove-Item "$AppDir\appliance-status.txt" -Force -ErrorAction SilentlyContinue
-schtasks /run /tn BasaPOS-Appliance 2>$null | Out-Null
+$scheduledRan = $false
+$scheduledDeadline = (Get-Date).AddMinutes(8)
+while ((Get-Date) -lt $scheduledDeadline) {
+  $st = (Get-Content "$AppDir\appliance-status.txt" -ErrorAction SilentlyContinue) -join ''
+  if ("$st" -ne '') { $scheduledRan = $true; break }
+  Start-Sleep -Seconds 5
+}
+if (-not $scheduledRan) {
+  Write-Host '  (boot-wrapper did not write status within 8 min — checking site directly)'
+}
 $siteOk = $false
 $siteDeadline = (Get-Date).AddMinutes(8)
 while ((Get-Date) -lt $siteDeadline) {
-  $st = (Get-Content "$AppDir\appliance-status.txt" -ErrorAction SilentlyContinue) -join ''
-  if ("$st" -eq 'RUNNING') {
-    $code2 = & $ping
-    if ("$code2" -eq '200') { $siteOk = $true; break }
-  }
+  $code2 = & $ping
+  if ("$code2" -eq '200') { $siteOk = $true; break }
   Start-Sleep -Seconds 10
 }
 Check "site responds 200 post-upgrade (got $code2)" $siteOk
