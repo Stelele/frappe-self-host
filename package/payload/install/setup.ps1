@@ -195,9 +195,6 @@ cd /home/frappe/bench
 echo "`$(ts) running bench restore..." >> "`$LOGFILE"
 su - frappe -c "$restoreCmd" >> "`$LOGFILE" 2>&1
 echo "`$(ts) restore exit: `$?" >> "`$LOGFILE"
-echo "`$(ts) running migrate..." >> "`$LOGFILE"
-su - frappe -c "bench --site basapos.local migrate" >> "`$LOGFILE" 2>&1
-echo "`$(ts) migrate exit: `$?" >> "`$LOGFILE"
 echo "`$(ts) running clear-cache..." >> "`$LOGFILE"
 su - frappe -c "bench --site basapos.local clear-cache" >> "`$LOGFILE" 2>&1
 echo "`$(ts) clear-cache exit: `$?" >> "`$LOGFILE"
