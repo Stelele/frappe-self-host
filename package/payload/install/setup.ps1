@@ -176,7 +176,13 @@ function Restore-LatestBackup {
     & wsl.exe -d $script:Distro -- bash -c "cp '$(Convert-ToWslPath $priv.FullName)' '$wslPriv'"
   }
 
-  $restoreCmd = "bench --site basapos.local restore '$wslSql' --force --db-root-username root --db-root-password 'BasaPOS-root-2026'"
+  # Read admin password from credentials file for bench restore --admin-password
+  $adminPw = Get-Content $CredsFile -ErrorAction SilentlyContinue |
+    Where-Object { $_ -match '^password=' } |
+    ForEach-Object { $_.Substring(9).Trim() } |
+    Select-Object -First 1
+  if (-not $adminPw) { throw "credentials.txt missing password for restore" }
+  $restoreCmd = "bench --site basapos.local restore '$wslSql' --force --db-root-username root --db-root-password 'BasaPOS-root-2026' --admin-password '$adminPw'"
   if ($wslFiles) { $restoreCmd += " --with-public-files '$wslFiles'" }
   if ($wslPriv)  { $restoreCmd += " --with-private-files '$wslPriv'" }
   $logDir = Join-Path $InstallRoot "logs"
