@@ -150,13 +150,35 @@ function Restore-LatestBackup {
   Write-BasaLog "restoring pre-upgrade backup"
   $sql = Get-ChildItem $Dest -Filter "*.sql.gz" | Sort-Object Name | Select-Object -Last 1
   if (-not $sql) { throw "no sql backup found in $Dest" }
-  $inSql = Convert-ToWslPath $sql.FullName
   $tars  = @(Get-ChildItem $Dest -Filter "*.tar")
   $priv  = $tars | Where-Object { $_.Name -match '-private-files\.tar$' } | Select-Object -Last 1
   $files = $tars | Where-Object { $_.Name -notmatch '-private-files\.tar$' } | Select-Object -Last 1
-  $restoreCmd = "bench --site basapos.local restore '$inSql' --force --db-root-username root --db-root-password 'BasaPOS-root-2026'"
-  if ($files) { $restoreCmd += " --with-public-files '" + (Convert-ToWslPath $files.FullName) + "'" }
-  if ($priv)  { $restoreCmd += " --with-private-files '" + (Convert-ToWslPath $priv.FullName) + "'" }
+
+  # Copy backup files to WSL native filesystem — reading from /mnt/c/ (9P mount)
+  # is 10-50x slower than native ext4 I/O inside the WSL virtual disk.
+  $stagingDir = "/home/frappe/bench/sites/__restore_staging"
+  & wsl.exe -d $script:Distro -- bash -c "mkdir -p '$stagingDir'"
+
+  $wslSql = "$stagingDir/$($sql.Name)"
+  Write-BasaLog "copying SQL dump to WSL native fs: $wslSql"
+  & wsl.exe -d $script:Distro -- bash -c "cp '$(Convert-ToWslPath $sql.FullName)' '$wslSql'"
+
+  $wslFiles = $null
+  if ($files) {
+    $wslFiles = "$stagingDir/$($files.Name)"
+    Write-BasaLog "copying public files tar to WSL native fs: $wslFiles"
+    & wsl.exe -d $script:Distro -- bash -c "cp '$(Convert-ToWslPath $files.FullName)' '$wslFiles'"
+  }
+  $wslPriv = $null
+  if ($priv) {
+    $wslPriv = "$stagingDir/$($priv.Name)"
+    Write-BasaLog "copying private files tar to WSL native fs: $wslPriv"
+    & wsl.exe -d $script:Distro -- bash -c "cp '$(Convert-ToWslPath $priv.FullName)' '$wslPriv'"
+  }
+
+  $restoreCmd = "bench --site basapos.local restore '$wslSql' --force --db-root-username root --db-root-password 'BasaPOS-root-2026'"
+  if ($wslFiles) { $restoreCmd += " --with-public-files '$wslFiles'" }
+  if ($wslPriv)  { $restoreCmd += " --with-private-files '$wslPriv'" }
   $logDir = Join-Path $InstallRoot "logs"
   $restoreLog = Join-Path $logDir "restore.log"
   Write-BasaLog "restore cmd: $restoreCmd"
@@ -182,6 +204,8 @@ echo "`$(ts) clear-cache exit: `$?" >> "`$LOGFILE"
 echo "`$(ts) setting maintenance_mode=0, pause_scheduler=0..." >> "`$LOGFILE"
 su - frappe -c "bench --site basapos.local set-config -gp maintenance_mode 0" >> "`$LOGFILE" 2>&1
 su - frappe -c "bench --site basapos.local set-config -gp pause_scheduler 0" >> "`$LOGFILE" 2>&1
+echo "`$(ts) cleaning up staging files..." >> "`$LOGFILE"
+rm -rf "$stagingDir" 2>/dev/null || true
 echo "`$(ts) resetting failed services..." >> "`$LOGFILE"
 systemctl reset-failed basapos-gunicorn basapos-socketio basapos-worker-short basapos-worker-long basapos-scheduler 2>&1 >> "`$LOGFILE" || true
 echo "`$(ts) restarting services..." >> "`$LOGFILE"
