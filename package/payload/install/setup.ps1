@@ -237,9 +237,9 @@ echo "`$(ts) restore-script done" >> "`$LOGFILE"
   $lfContent = $scriptContent -replace "`r`n", "`n"
   [System.IO.File]::WriteAllText($tmpScript, $lfContent, [System.Text.UTF8Encoding]::new($false))
   $wslScript = Convert-ToWslPath $tmpScript
-  & wsl.exe -d $script:Distro -- bash -c "cp '$wslScript' /tmp/restore-script.sh && chmod +x /tmp/restore-script.sh"
-  # Run as root - su - frappe handles user switch for bench commands
-  & wsl.exe -d $script:Distro -- bash -c "bash /tmp/restore-script.sh > /tmp/restore.log 2>&1; echo WSL_EXIT:`$? >> /tmp/restore.log"
+  & wsl.exe -d $script:Distro -u root -- bash -c "cp '$wslScript' /tmp/restore-script.sh && chmod +x /tmp/restore-script.sh"
+  # Run as root — su - frappe handles user switch for bench commands
+  & wsl.exe -d $script:Distro -u root -- bash -c "bash /tmp/restore-script.sh > /tmp/restore.log 2>&1; echo WSL_EXIT:`$? >> /tmp/restore.log"
   $exitCode = $LASTEXITCODE
   $rawLog = & wsl.exe -d $script:Distro -- bash -c "cat /tmp/restore.log"
   [System.IO.File]::WriteAllText($restoreLog, ($rawLog -join "`n"), [System.Text.UTF8Encoding]::new($false))
