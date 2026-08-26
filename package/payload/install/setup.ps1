@@ -199,17 +199,17 @@ ts() { date '+%Y-%m-%d %H:%M:%S'; }
 echo "`$(ts) restore-script started (pwd=`$(pwd) user=`$(whoami))" > "`$LOGFILE"
 cd /home/frappe/bench
 echo "`$(ts) setting root credentials in site_config.json..." >> "`$LOGFILE"
-su - frappe -c "python3 -c \"import json; f='/home/frappe/bench/sites/basapos.local/site_config.json'; c=json.load(open(f)); c['root_login']='root'; c['root_password']='BasaPOS-root-2026'; c['mariadb_root_password']='BasaPOS-root-2026'; json.dump(c, open(f,'w'), indent=2)\"" >> "`$LOGFILE" 2>&1
+python3 -c "import json; f='/home/frappe/bench/sites/basapos.local/site_config.json'; c=json.load(open(f)); c['root_login']='root'; c['root_password']='BasaPOS-root-2026'; c['mariadb_root_password']='BasaPOS-root-2026'; json.dump(c, open(f,'w'), indent=2)" >> "`$LOGFILE" 2>&1
 echo "`$(ts) site_config root credentials set: `$?" >> "`$LOGFILE"
 echo "`$(ts) running bench restore..." >> "`$LOGFILE"
-su - frappe -c "$restoreCmd" >> "`$LOGFILE" 2>&1
+su frappe -c "$restoreCmd" >> "`$LOGFILE" 2>&1
 echo "`$(ts) restore exit: `$?" >> "`$LOGFILE"
 echo "`$(ts) running clear-cache..." >> "`$LOGFILE"
-su - frappe -c "bench --site basapos.local clear-cache" >> "`$LOGFILE" 2>&1
+su frappe -c "bench --site basapos.local clear-cache" >> "`$LOGFILE" 2>&1
 echo "`$(ts) clear-cache exit: `$?" >> "`$LOGFILE"
 echo "`$(ts) setting maintenance_mode=0, pause_scheduler=0..." >> "`$LOGFILE"
-su - frappe -c "bench --site basapos.local set-config -gp maintenance_mode 0" >> "`$LOGFILE" 2>&1
-su - frappe -c "bench --site basapos.local set-config -gp pause_scheduler 0" >> "`$LOGFILE" 2>&1
+su frappe -c "bench --site basapos.local set-config -gp maintenance_mode 0" >> "`$LOGFILE" 2>&1
+su frappe -c "bench --site basapos.local set-config -gp pause_scheduler 0" >> "`$LOGFILE" 2>&1
 echo "`$(ts) cleaning up staging files..." >> "`$LOGFILE"
 rm -rf "$stagingDir" 2>/dev/null || true
 echo "`$(ts) resetting failed services..." >> "`$LOGFILE"
