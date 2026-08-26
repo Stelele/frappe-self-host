@@ -198,6 +198,9 @@ LOGFILE="$wslLogDir/restore-steps.log"
 ts() { date '+%Y-%m-%d %H:%M:%S'; }
 echo "`$(ts) restore-script started (pwd=`$(pwd) user=`$(whoami))" > "`$LOGFILE"
 cd /home/frappe/bench
+echo "`$(ts) setting root credentials in site_config.json..." >> "`$LOGFILE"
+su - frappe -c "python3 -c \"import json; f='/home/frappe/bench/sites/basapos.local/site_config.json'; c=json.load(open(f)); c['root_login']='root'; c['root_password']='BasaPOS-root-2026'; c['mariadb_root_password']='BasaPOS-root-2026'; json.dump(c, open(f,'w'), indent=2)\"" >> "`$LOGFILE" 2>&1
+echo "`$(ts) site_config root credentials set: `$?" >> "`$LOGFILE"
 echo "`$(ts) running bench restore..." >> "`$LOGFILE"
 su - frappe -c "$restoreCmd" >> "`$LOGFILE" 2>&1
 echo "`$(ts) restore exit: `$?" >> "`$LOGFILE"
