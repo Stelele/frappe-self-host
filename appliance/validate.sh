@@ -93,5 +93,30 @@ grep -q '^[[:space:]]*listen 443 ssl' <<<"$ngx" || fail "nginx missing 443 ssl l
 grep -q 'server_name basapos.local' <<<"$ngx" || fail "nginx missing server_name"
 pass "nginx conf sane"
 
+# --- /home/frappe must be traverseable by nginx's www-data ---------------------
+# nginx serves /assets/* directly via try_files; the worker (www-data) needs the
+# x bit ("other") on /home/frappe or every asset 404s and the page renders
+# unstyled. Capture perms in one pass (tar -tv is expensive on a 1.9GB gzip).
+VERBOSE="$(mktemp)"; trap 'rm -f "$MEMBERS" "$VERBOSE"' EXIT
+tar -tvzf "$TAR" > "$VERBOSE" 2>/dev/null
+homepriv=$(awk '$6 == "home/frappe/" || $6 == "home/frappe" {print $1; exit}' "$VERBOSE")
+[[ "$homepriv" =~ ^d[rwx-]{3}[rwx-]{3}[rwx-]{3}$ ]] || fail "could not determine /home/frappe mode from tar listing"
+# last char is the "other" execute bit
+[[ "${homepriv:9}" == "x" || "${homepriv:9}" == "t" || "${homepriv:9}" == "s" ]] \
+  || fail "/home/frappe is not other-traverseable (mode $homepriv) -- nginx/www-data cannot serve /assets; run: chmod 0751 /home/frappe in create_user()"
+pass "/home/frappe mode $homepriv is www-data-traverseable"
+
+# --- sites/assets/<app> must be symlinks into apps' public dirs ----------------
+for app in frappe erpnext; do
+  grep -q "^lrwxrwxrwx.*sites/assets/${app} -> .*apps/${app}/${app}/public$" "$VERBOSE" \
+    || fail "sites/assets/${app} is not a symlink to apps/${app}/${app}/public -- bench build did not wire assets"
+done
+pass "sites/assets/{frappe,erpnext} symlinks present"
+
+# --- built CSS bundles must exist (unstyled-page guard) ------------------------
+bundle=$(awk '/apps\/frappe\/frappe\/public\/dist\/css\/[^ ]*\.css$/ {print $NF; exit}' "$VERBOSE")
+[[ -n "$bundle" ]] || fail "no built CSS bundle under apps/frappe/frappe/public/dist/css -- bench build output missing"
+pass "built frappe CSS bundle present: ${bundle##* }"
+
 echo ""
 echo "ALL VALIDATIONS PASSED: $TAR"

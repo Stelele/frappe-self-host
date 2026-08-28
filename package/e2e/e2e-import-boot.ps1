@@ -76,6 +76,20 @@ Write-Host '== firstboot TLS generated =='
 $out = wsl -d $Distro -u root -- bash -c "openssl x509 -in /etc/nginx/ssl/basapos.crt -noout -subject"
 Check ('cert subject CN=basapos.local -> ' + "$out".Trim()) ("$out" -match 'subject=.*basapos\.local')
 
+Write-Host '== /home/frappe traverseable by www-data (assets guard) =='
+$mode = (wsl -d $Distro -u root -- bash -c "stat -c %a /home/frappe").Trim()
+Check ("/home/frappe mode $mode is other-traverseable") (([int]$mode % 10) -band 1)
+
+Write-Host '== login stylesheet served (assets guard) =='
+$cssPath = (wsl -d $Distro -u root -- bash -c 'curl -sk https://basapos.local/login | grep -oE ''href="[^"]+\.css[^"]*"'' | head -1 | sed ''s/href="//;s/"$//''').Trim()
+if ($cssPath) {
+  if ($cssPath.StartsWith('/')) { $cssUrl = "https://basapos.local$cssPath" } else { $cssUrl = $cssPath }
+  $assetCode = (wsl -d $Distro -u root -- bash -c "curl -sk -o /dev/null -w '%{http_code}' '$cssUrl'").Trim()
+  Check ("asset 200: $cssPath (got $assetCode)") ($assetCode -eq '200')
+} else {
+  Check 'login page references a stylesheet' $false
+}
+
 Write-Host ''
 if ($script:fail -gt 0) { Write-Host "E2E FAILED ($($script:fail) checks)"; exit 1 }
 Write-Host 'E2E PASSED'

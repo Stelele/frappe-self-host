@@ -74,6 +74,26 @@ $code = & $ping
 Check "site responds 200 from host (got $code)" ("$code" -eq '200')
 $pwBefore = ($creds | Select-String '^password=').Line
 
+# TLS regression armour: NO -k flag -> curl.exe validates via schannel
+# against the Windows trust store. Fails if the installer forgot to import
+# the appliance's self-signed cert (Cert:\LocalMachine\Root).
+$codeTrusted = & curl.exe -s -o NUL -w "%{http_code}" 'https://basapos.local/api/method/ping' 2>$null
+Check "TLS trusted by Windows store, no -k (got $codeTrusted)" ("$codeTrusted" -eq '200')
+
+# Unstyled-page regression armour: the login page's first stylesheet must
+# load. Fails when nginx/www-data cannot traverse /home/frappe (mode 0750)
+# and every /assets/* request 404s.
+$html = (& curl.exe -sk 'https://basapos.local/login' 2>$null) -join "`n"
+$m = [regex]::Match($html, 'href="([^"]+?\.css[^"]*)"')
+if ($m.Success) {
+  $asset = $m.Groups[1].Value
+  if ($asset.StartsWith('/')) { $asset = "https://basapos.local$asset" }
+  $assetCode = & curl.exe -sk -o NUL -w "%{http_code}" "$asset" 2>$null
+  Check "login stylesheet loads: $asset (got $assetCode)" ("$assetCode" -eq '200')
+} else {
+  Check 'login page references a stylesheet' $false
+}
+
 # ------------------------------------------------------ 2 - AUTOSTART WRAPPER
 Write-Host '== 2. autostart wrapper reaches RUNNING =='
 # Run boot-wrapper directly (scheduled task context broken in CI)
@@ -128,6 +148,10 @@ $pwAfter = ($credsAfter | Select-String '^password=').Line
 Check 'credentials preserved across upgrade' ("$pwAfter" -eq "$pwBefore")
 $status2 = (Get-Content "$AppDir\setup-status.txt") -join ''
 Check 'post-upgrade SETUP_COMPLETE' ("$status2" -match '^SETUP_COMPLETE')
+# Upgrade re-imports the rootfs -> firstboot generates a NEW cert. setup.ps1
+# must have re-imported it into the Windows trust store (no -k here).
+$codeTrusted2 = & curl.exe -s -o NUL -w "%{http_code}" 'https://basapos.local/api/method/ping' 2>$null
+Check "post-upgrade TLS trusted by Windows store (got $codeTrusted2)" ("$codeTrusted2" -eq '200')
 # After upgrade the restore-script confirms site health from inside WSL.
 # WSL2 networking may be broken after distro re-import, so verify via
 # the restore-steps.log instead of a separate ping.

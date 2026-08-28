@@ -80,6 +80,10 @@ while ((Get-Date) -lt $deadline) {
         Write-BasaLog "LAN_MODE: portproxy 0.0.0.0:443 -> ${ip}:443"
       }
     }
+    # Ensure the appliance TLS cert is trusted (idempotent; covers first boot
+    # after install and the new cert generated after an upgrade re-import).
+    # Never block RUNNING on trust failure -- the site itself is healthy.
+    try { $null = Ensure-TrustedCert -InstallRoot $InstallRoot } catch { Write-BasaLog "cert trust skipped: $($_.Exception.Message)" }
     Set-Status "RUNNING"
     exit 0
   }

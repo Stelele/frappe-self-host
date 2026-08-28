@@ -344,7 +344,13 @@ try {
     if (Test-SiteOnline -Url $url) { $online = $true; break }
     Start-Sleep -Seconds 10
   }
-  if ($online) { Write-BasaLog "site online" } else { Write-BasaLog "WARN: site not yet online; autostart will finish booting" }
+  if ($online) {
+    Write-BasaLog "site online"
+    # Trust the appliance's self-signed TLS cert (LocalMachine\Root) so the
+    # browser doesn't mark https://basapos.local as "Not secure". If the site
+    # wasn't online yet, boot-wrapper.ps1 re-runs this on first healthy boot.
+    $null = Ensure-TrustedCert -InstallRoot $InstallRoot
+  } else { Write-BasaLog "WARN: site not yet online; autostart will finish booting" }
 
   New-Item -ItemType File -Path $InstalledMarker -Force | Out-Null
   [System.IO.File]::AppendAllText($DebugFile, (Get-Date).ToString() + " FINAL: online=" + $online + " isUpgrade=" + $isUpgrade + "`n")

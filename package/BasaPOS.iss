@@ -46,7 +46,7 @@ Name: "{userstartup}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: au
 ; PowerShell process exit (child processes keep it alive indefinitely).
 
 [UninstallRun]
-Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File {app}\payload\install\remove-basapos.ps1"; Flags: runhidden; RunOnceId: "BasaPOSCleanup"
+Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\payload\install\remove-basapos.ps1"" -AppDir ""{app}"""; Flags: runhidden; RunOnceId: "BasaPOSCleanup"
 
 [Code]
 function ReadStatus(): String;

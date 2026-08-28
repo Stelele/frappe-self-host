@@ -63,6 +63,24 @@ Check 'credentials generated (16-char pw)' ([bool](($creds -join "`n") -match 'p
 $code = & $ping
 Check "site responds 200 from host (got $code)" ([bool]("$code" -eq '200'))
 
+# TLS regression armour: NO -k flag -> curl.exe validates via schannel
+# against the Windows trust store (installer must import the appliance cert).
+$codeTrusted = & curl.exe -s -o NUL -w "%{http_code}" 'https://basapos.local/api/method/ping' 2>$null
+Check "TLS trusted by Windows store, no -k (got $codeTrusted)" ([bool]("$codeTrusted" -eq '200'))
+
+# Unstyled-page regression armour: login page stylesheet must load with 200
+# (fails when /assets/* 404s due to /home/frappe traversal perms).
+$html = (& curl.exe -sk 'https://basapos.local/login' 2>$null) -join "`n"
+$m = [regex]::Match($html, 'href="([^"]+?\.css[^"]*)"')
+if ($m.Success) {
+  $asset = $m.Groups[1].Value
+  if ($asset.StartsWith('/')) { $asset = "https://basapos.local$asset" }
+  $assetCode = & curl.exe -sk -o NUL -w "%{http_code}" "$asset" 2>$null
+  Check "login stylesheet loads (got $assetCode)" ([bool]("$assetCode" -eq '200'))
+} else {
+  Check 'login page references a stylesheet' $false
+}
+
 # ---- Step 2: Boot-wrapper ----
 Write-Host '== 2. autostart wrapper reaches RUNNING =='
 # Run boot-wrapper directly (scheduled task context broken in CI S4U/Interactive).

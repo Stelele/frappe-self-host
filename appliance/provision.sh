@@ -14,6 +14,11 @@ install_bench_cli() {
 create_user() {
   log "creating unprivileged frappe user"
   id -u frappe >/dev/null 2>&1 || useradd -ms /bin/bash frappe
+  # Ubuntu 22.04 creates homes with HOME_MODE=0750 (private). nginx workers run as
+  # www-data and must TRAVERSE /home/frappe to serve /assets/* directly (try_files),
+  # but must not list it. 0751 = rwxr-x--x: traverse-only for others. Required for
+  # the nginx `location /assets` block, otherwise every asset 404s (unstyled page).
+  chmod 0751 /home/frappe
 }
 
 init_bench_and_apps() {
