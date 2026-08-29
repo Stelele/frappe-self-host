@@ -91,6 +91,13 @@ function Get-PemThumbprint {
 function Ensure-TrustedCert {
   param([Parameter(Mandatory=$true)][string]$InstallRoot)
   try {
+    # The Certificate provider (Cert: drive) and PKI module are NOT reliably
+    # auto-loaded in the Inno-spawned powershell.exe context — without this
+    # every Cert:\ reference throws "Cannot find drive. A drive with the name
+    # 'Cert' does not exist" and Import-Certificate is unavailable.
+    Import-Module Microsoft.PowerShell.Security -ErrorAction SilentlyContinue
+    Import-Module PKI -ErrorAction SilentlyContinue
+
     $tlsDir = Join-Path $InstallRoot "config\tls"
     New-Item -ItemType Directory -Force -Path $tlsDir | Out-Null
     $pem = Join-Path $tlsDir "basapos.crt"
