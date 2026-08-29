@@ -122,11 +122,11 @@ begin
       begin
         // Use SuppressibleMsgBox, not MsgBox: the /SUPPRESSMSGBOXES flag does
         // not suppress plain MsgBox, which hangs forever on headless CI.
-        SuppressibleMsgBox('Setup failed: ' + Status, mbError, MB_OK);
+        SuppressibleMsgBox('Setup failed: ' + Status, mbError, MB_OK, IDOK);
         Exit;
       end;
       Sleep(5000);
     end;
-    SuppressibleMsgBox('Setup timed out waiting for appliance.', mbError, MB_OK);
+    SuppressibleMsgBox('Setup timed out waiting for appliance.', mbError, MB_OK, IDOK);
   end;
 end;
