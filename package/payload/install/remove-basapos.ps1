@@ -8,8 +8,10 @@ $ErrorActionPreference = "Continue"
 Unregister-ScheduledTask -TaskName "BasaPOS-Appliance" -Confirm:$false -ErrorAction SilentlyContinue
 Unregister-ScheduledTask -TaskName "BasaPOS-Setup-Resume" -Confirm:$false -ErrorAction SilentlyContinue
 
-# Remove the appliance's self-signed cert from the machine trust store
-# (tracked by thumbprint; see Ensure-TrustedCert in common.ps1).
+# Remove the appliance's self-signed cert from the machine trust store.
+# Inlined deliberately (no dot-sourcing common.ps1: it may already be gone in
+# a partial uninstall). Thumbprint path must match Ensure-TrustedCert in
+# common.ps1: <InstallRoot>\config\tls\cert-thumbprint.txt
 $thumbFile = Join-Path $AppDir "config\tls\cert-thumbprint.txt"
 if (Test-Path $thumbFile) {
   $thumb = (Get-Content $thumbFile -First 1 -ErrorAction SilentlyContinue)

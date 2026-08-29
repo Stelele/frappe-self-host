@@ -120,11 +120,14 @@ begin
         Exit;
       if Pos('ERROR', Status) > 0 then
       begin
-        MsgBox('Setup failed: ' + Status, mbError, MB_OK);
+        { SuppressibleMsgBox, NOT MsgBox: /SUPPRESSMSGBOXES does not suppress
+          [Code]-section MsgBox calls, so a plain MsgBox hangs forever on a
+          headless CI runner (drill-failure-catalog D4). }
+        SuppressibleMsgBox('Setup failed: ' + Status, mbError, MB_OK);
         Exit;
       end;
       Sleep(5000);
     end;
-    MsgBox('Setup timed out waiting for appliance.', mbError, MB_OK);
+    SuppressibleMsgBox('Setup timed out waiting for appliance.', mbError, MB_OK);
   end;
 end;

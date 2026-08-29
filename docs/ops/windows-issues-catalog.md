@@ -55,6 +55,9 @@ fetched an asset URL. Both gaps now have regression checks.
 | WIN-018 | L | Drill gaps: asset/CSS check, non-`-k` TLS check, upgrade trusts log text, scheduled-task path never run in CI | package/e2e/*.ps1 | PARTIAL (asset + TLS checks added) |
 | WIN-019 | L | `ProgramData\BasaPOS\install-root.txt` world-readable path hint | setup.ps1:34-36 | OPEN |
 | WIN-020 | L | Uninstall: unquoted -File path breaks for usernames with spaces | BasaPOS.iss [UninstallRun] | FIXED (quoted + -AppDir passed) |
+| WIN-021 | L | Ensure-TrustedCert failure is log-only; install reports success while "Not Secure" persists (drills catch it in CI, not on user machines) | common.ps1 / setup.ps1 | OPEN |
+| WIN-022 | L | Installs made before cert-trust fix leave permanent orphan self-signed certs in LocalMachine\Root (uninstall never removed them) | pre-existing installs | OPEN |
+| WIN-023 | L | Firefox uses its own cert store — shows "Not Secure" regardless of Windows trust import (Edge/Chrome fine); documented in troubleshooting.md | browsers | KNOWN LIMITATION |
 
 ## FRP — Frappe appliance & deployment
 
@@ -91,6 +94,8 @@ import-boot e2e    ✗ fails when /home/frappe mode lacks o+x (stat inside distr
 
 ## Recommended fix order (Phase 3+)
 
+0. Drill non-completion — see docs/ops/drill-failure-catalog.md (25 mechanisms,
+   D1-D25, from 10 independent reviewers; Phase A/B/C fix order there)
 1. WIN-002 uninstall data prompt (data safety for shops)
 2. WIN-006 + WIN-010 upgrade correctness (migrate + verified backup)
 3. WIN-004 WSL detection (clean Win10 boxes)

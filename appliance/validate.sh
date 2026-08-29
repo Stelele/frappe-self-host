@@ -97,11 +97,15 @@ pass "nginx conf sane"
 # nginx serves /assets/* directly via try_files; the worker (www-data) needs the
 # x bit ("other") on /home/frappe or every asset 404s and the page renders
 # unstyled. Capture perms in one pass (tar -tv is expensive on a 1.9GB gzip).
+# NOTE: field layout assumes GNU tar's default -tv format (perms owner/group as
+# one numeric field). Accept both docker-export ("home/...") and GNU-tar
+# ("./home/...") producers, like has() above does for members.
 VERBOSE="$(mktemp)"; trap 'rm -f "$MEMBERS" "$VERBOSE"' EXIT
 tar -tvzf "$TAR" > "$VERBOSE" 2>/dev/null
-homepriv=$(awk '$6 == "home/frappe/" || $6 == "home/frappe" {print $1; exit}' "$VERBOSE")
-[[ "$homepriv" =~ ^d[rwx-]{3}[rwx-]{3}[rwx-]{3}$ ]] || fail "could not determine /home/frappe mode from tar listing"
-# last char is the "other" execute bit
+homepriv=$(awk '$6 == "home/frappe/" || $6 == "home/frappe" || $6 == "./home/frappe/" || $6 == "./home/frappe" {print $1; exit}' "$VERBOSE")
+[[ "$homepriv" =~ ^d[rwxstST-]{9}$ ]] || fail "could not determine /home/frappe mode from tar listing"
+# last char is the "other" execute bit (t = sticky+exec, s = setgid+exec;
+# capital T/S mean the bit is set WITHOUT exec -> not traverseable)
 [[ "${homepriv:9}" == "x" || "${homepriv:9}" == "t" || "${homepriv:9}" == "s" ]] \
   || fail "/home/frappe is not other-traverseable (mode $homepriv) -- nginx/www-data cannot serve /assets; run: chmod 0751 /home/frappe in create_user()"
 pass "/home/frappe mode $homepriv is www-data-traverseable"

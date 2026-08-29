@@ -101,7 +101,17 @@ function Ensure-TrustedCert {
     & wsl.exe -d $script:Distro -u root --exec /bin/test -f /etc/nginx/ssl/basapos.crt 2>$null | Out-Null
     if ($LASTEXITCODE -ne 0) { Write-BasaLog "cert trust: /etc/nginx/ssl/basapos.crt not present yet"; return $false }
 
-    Copy-Item "\\wsl$\$script:Distro\etc\nginx\ssl\basapos.crt" $pem -Force
+    # D17: 9P shares can be slow to serve right after a distro (re)start -
+    # retry both share prefixes instead of failing on the first attempt.
+    $copied = $false
+    foreach ($share in @("\\wsl$\$script:Distro\etc\nginx\ssl\basapos.crt",
+                         "\\wsl.localhost\$script:Distro\etc\nginx\ssl\basapos.crt")) {
+      for ($i = 1; $i -le 3 -and -not $copied; $i++) {
+        try { Copy-Item $share $pem -Force -ErrorAction Stop; $copied = $true } catch { Start-Sleep -Seconds 5 }
+      }
+      if ($copied) { break }
+    }
+    if (-not $copied) { Write-BasaLog "cert trust: could not copy cert via wsl`$/wsl.localhost shares"; return $false }
     $thumb = Get-PemThumbprint -PemPath $pem
     if (-not $thumb) { Write-BasaLog "cert trust: could not parse exported cert"; return $false }
 
@@ -118,6 +128,11 @@ function Ensure-TrustedCert {
       Set-Content -Path $thumbFile -Value $imported.Thumbprint -Encoding ascii
       Write-BasaLog "cert trust: imported $($imported.Thumbprint) into LocalMachine\Root"
     } else {
+      # Already trusted; drop a stale tracked cert (e.g. re-imported out of
+      # band or thumbprint file from a previous appliance cert).
+      if ($oldThumb -and ($oldThumb -ne $thumb)) {
+        try { Remove-Item -Path "Cert:\LocalMachine\Root\$oldThumb" -ErrorAction Stop | Out-Null } catch {}
+      }
       Set-Content -Path $thumbFile -Value $thumb -Encoding ascii
     }
     return $true
@@ -127,16 +142,7 @@ function Ensure-TrustedCert {
   }
 }
 
-function Remove-TrustedCert {
-  param([string]$InstallRoot)
-  try {
-    if (-not $InstallRoot) { return }
-    $thumbFile = Join-Path $InstallRoot "config\tls\cert-thumbprint.txt"
-    if (Test-Path $thumbFile) {
-      $thumb = (Get-Content $thumbFile -First 1).Trim()
-      if ($thumb) {
-        try { Remove-Item -Path "Cert:\LocalMachine\Root\$thumb" -ErrorAction Stop | Out-Null } catch {}
-      }
-    }
-  } catch { Write-Host "cert cleanup skipped: $($_.Exception.Message)" }
-}
+# NOTE: cert removal on uninstall lives INLINE in remove-basapos.ps1 (it must
+# not depend on dot-sourcing common.ps1, which may already be deleted by a
+# partial uninstall). Keep the thumbprint path in sync:
+#   <InstallRoot>\config\tls\cert-thumbprint.txt

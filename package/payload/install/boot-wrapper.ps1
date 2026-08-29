@@ -87,8 +87,11 @@ while ((Get-Date) -lt $deadline) {
     Set-Status "RUNNING"
     exit 0
   }
-  if (-not $restarted -and ((Get-Date) -gt $deadline.AddMinutes(-7))) {
-    Write-BasaLog "site not responding after 60s - restarting bench services"
+  # D21: restart at the midpoint (4 min into an 8-min window), not at 60s.
+  # gunicorn --preload cold-starts in 1-3 min on slow disks; restarting at
+  # t=60s interrupted it mid-start and could eat the whole remaining budget.
+  if (-not $restarted -and ((Get-Date) -gt $deadline.AddMinutes(-4))) {
+    Write-BasaLog "site not responding after 4 min - restarting bench services"
     & wsl.exe -d $script:Distro -u root -- bash -c "systemctl restart basapos-gunicorn basapos-socketio basapos-worker-short basapos-worker-long basapos-scheduler 2>&1" 2>$null | Out-Null
     $restarted = $true
     Start-Sleep -Seconds 10
