@@ -80,24 +80,50 @@ function Test-SiteOnline {
 # changed (fresh upgrade re-import regenerates it) it imports the new cert
 # and removes the previously tracked one.
 
-function Get-PemThumbprint {
+function Get-PemCert {
   param([string]$PemPath)
+  # Returns an X509Certificate2 parsed from the PEM base64 body.
   $text = Get-Content $PemPath -Raw
   $b64 = ($text -replace '-----BEGIN CERTIFICATE-----', '' -replace '-----END CERTIFICATE-----', '' -replace '\s', '')
-  $cert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2(, [Convert]::FromBase64String($b64))
-  return $cert.Thumbprint
+  return (New-Object System.Security.Cryptography.X509Certificates.X509Certificate2(, [Convert]::FromBase64String($b64)))
+}
+
+# --- LocalMachine\Root store helpers (.NET X509Store) ------------------------
+# The Cert: PSDrive (Microsoft.PowerShell.Security) and Import-Certificate
+# (PKI) are NOT reliably loadable in the Inno-spawned powershell.exe context:
+# the drive throws "Cannot find drive Cert" and Import-Module throws
+# "AuditToString is already present" (a known PS 5.1 type-data conflict).
+# X509Store has no such dependencies and needs no module import.
+
+function Test-RootCertTrusted {
+  param([string]$Thumbprint)
+  $store = New-Object System.Security.Cryptography.X509Certificates.X509Store('Root', 'LocalMachine')
+  $store.Open([System.Security.Cryptography.X509Certificates.OpenFlags]::ReadOnly)
+  try {
+    foreach ($c in $store.Certificates) { if ($c.Thumbprint -eq $Thumbprint) { return $true } }
+    return $false
+  } finally { $store.Close() }
+}
+
+function Add-RootCert {
+  param([System.Security.Cryptography.X509Certificates.X509Certificate2]$Cert)
+  $store = New-Object System.Security.Cryptography.X509Certificates.X509Store('Root', 'LocalMachine')
+  $store.Open([System.Security.Cryptography.X509Certificates.OpenFlags]::ReadWrite)
+  try { $store.Add($Cert) } finally { $store.Close() }
+}
+
+function Remove-RootCert {
+  param([string]$Thumbprint)
+  $store = New-Object System.Security.Cryptography.X509Certificates.X509Store('Root', 'LocalMachine')
+  $store.Open([System.Security.Cryptography.X509Certificates.OpenFlags]::ReadWrite)
+  try {
+    foreach ($c in $store.Certificates) { if ($c.Thumbprint -eq $Thumbprint) { $store.Remove($c); break } }
+  } finally { $store.Close() }
 }
 
 function Ensure-TrustedCert {
   param([Parameter(Mandatory=$true)][string]$InstallRoot)
   try {
-    # The Certificate provider (Cert: drive) and PKI module are NOT reliably
-    # auto-loaded in the Inno-spawned powershell.exe context — without this
-    # every Cert:\ reference throws "Cannot find drive. A drive with the name
-    # 'Cert' does not exist" and Import-Certificate is unavailable.
-    Import-Module Microsoft.PowerShell.Security -ErrorAction SilentlyContinue
-    Import-Module PKI -ErrorAction SilentlyContinue
-
     $tlsDir = Join-Path $InstallRoot "config\tls"
     New-Item -ItemType Directory -Force -Path $tlsDir | Out-Null
     $pem = Join-Path $tlsDir "basapos.crt"
@@ -119,27 +145,24 @@ function Ensure-TrustedCert {
       if ($copied) { break }
     }
     if (-not $copied) { Write-BasaLog "cert trust: could not copy cert via wsl`$/wsl.localhost shares"; return $false }
-    $thumb = Get-PemThumbprint -PemPath $pem
+    $cert = Get-PemCert -PemPath $pem
+    $thumb = $cert.Thumbprint
     if (-not $thumb) { Write-BasaLog "cert trust: could not parse exported cert"; return $false }
 
     $oldThumb = $null
     if (Test-Path $thumbFile) { $oldThumb = (Get-Content $thumbFile -First 1).Trim() }
 
-    $trusted = $false
-    try { if (Get-Item -Path "Cert:\LocalMachine\Root\$thumb" -ErrorAction Stop) { $trusted = $true } } catch {}
-    if (-not $trusted) {
-      if ($oldThumb -and ($oldThumb -ne $thumb)) {
-        try { Remove-Item -Path "Cert:\LocalMachine\Root\$oldThumb" -ErrorAction Stop | Out-Null } catch {}
-      }
-      $imported = Import-Certificate -FilePath $pem -CertStoreLocation Cert:\LocalMachine\Root
-      Set-Content -Path $thumbFile -Value $imported.Thumbprint -Encoding ascii
-      Write-BasaLog "cert trust: imported $($imported.Thumbprint) into LocalMachine\Root"
+    if (-not (Test-RootCertTrusted -Thumbprint $thumb)) {
+      # New or rotated cert: drop the previously tracked one (if different)
+      # and install the current one into LocalMachine\Root.
+      if ($oldThumb -and ($oldThumb -ne $thumb)) { Remove-RootCert -Thumbprint $oldThumb }
+      Add-RootCert -Cert $cert
+      Set-Content -Path $thumbFile -Value $thumb -Encoding ascii
+      Write-BasaLog "cert trust: installed $thumb into LocalMachine\Root"
     } else {
       # Already trusted; drop a stale tracked cert (e.g. re-imported out of
       # band or thumbprint file from a previous appliance cert).
-      if ($oldThumb -and ($oldThumb -ne $thumb)) {
-        try { Remove-Item -Path "Cert:\LocalMachine\Root\$oldThumb" -ErrorAction Stop | Out-Null } catch {}
-      }
+      if ($oldThumb -and ($oldThumb -ne $thumb)) { Remove-RootCert -Thumbprint $oldThumb }
       Set-Content -Path $thumbFile -Value $thumb -Encoding ascii
     }
     return $true
