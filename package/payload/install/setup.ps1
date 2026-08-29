@@ -394,7 +394,11 @@ try {
     # D16: hard-gate the unregister. Continuing after a failed/timed-out
     # unregister leaves the old ext4.vhdx beside the new import -> name
     # collision or C: exhaustion mid-import.
-    $unregJob = Start-Job -ScriptBlock { param($d) & wsl.exe --unregister $d 2>$null; $LASTEXITCODE } -ArgumentList $script:Distro
+    # Suppress wsl.exe's stdout ("The operation completed successfully.")
+    # so Receive-Job returns ONLY the exit code — otherwise the success text
+    # is mixed into $unregResult and the -ne 0 check reads "The operation
+    # completed successfully. 0" as a failure.
+    $unregJob = Start-Job -ScriptBlock { param($d) & wsl.exe --unregister $d > $null 2>&1; $LASTEXITCODE } -ArgumentList $script:Distro
     $completed = Wait-Job $unregJob -Timeout 300
     if ($null -eq $completed) {
       Stop-Job $unregJob; Remove-Job $unregJob -Force
