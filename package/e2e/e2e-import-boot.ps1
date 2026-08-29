@@ -81,10 +81,14 @@ $mode = (wsl -d $Distro -u root -- bash -c "stat -c %a /home/frappe").Trim()
 Check ("/home/frappe mode $mode is other-traverseable") (([int]$mode % 10) -band 1)
 
 Write-Host '== login stylesheet served (assets guard) =='
-$cssPath = (wsl -d $Distro -u root -- bash -c 'curl -sk https://basapos.local/login | grep -oE ''href="[^"]+\.css[^"]*"'' | head -1 | sed ''s/href="//;s/"$//''').Trim()
+# Extract the stylesheet href in PowerShell, not via nested bash single-quote
+# gymnastics (the old grep|sed -c line produced an unbalanced quote on CI).
+$html = (wsl -d $Distro -u root -- bash -c "curl -sk -m 20 https://basapos.local/login 2>/dev/null") -join "`n"
+$m = [regex]::Match($html, 'href="([^"]+?\.css[^"]*)"')
+$cssPath = if ($m.Success) { $m.Groups[1].Value } else { $null }
 if ($cssPath) {
   if ($cssPath.StartsWith('/')) { $cssUrl = "https://basapos.local$cssPath" } else { $cssUrl = $cssPath }
-  $assetCode = (wsl -d $Distro -u root -- bash -c "curl -sk -o /dev/null -w '%{http_code}' '$cssUrl'").Trim()
+  $assetCode = (wsl -d $Distro -u root -- bash -c "curl -sk -m 20 -o /dev/null -w '%{http_code}' '$cssUrl'").Trim()
   Check ("asset 200: $cssPath (got $assetCode)") ($assetCode -eq '200')
 } else {
   Check 'login page references a stylesheet' $false

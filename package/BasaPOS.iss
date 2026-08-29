@@ -120,9 +120,8 @@ begin
         Exit;
       if Pos('ERROR', Status) > 0 then
       begin
-        { SuppressibleMsgBox, NOT MsgBox: /SUPPRESSMSGBOXES does not suppress
-          [Code]-section MsgBox calls, so a plain MsgBox hangs forever on a
-          headless CI runner (drill-failure-catalog D4). }
+        // Use SuppressibleMsgBox, not MsgBox: the /SUPPRESSMSGBOXES flag does
+        // not suppress plain MsgBox, which hangs forever on headless CI.
         SuppressibleMsgBox('Setup failed: ' + Status, mbError, MB_OK);
         Exit;
       end;

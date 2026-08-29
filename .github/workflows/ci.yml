@@ -115,7 +115,7 @@ jobs:
             CACHE_BUST=${{ hashFiles('apps.json', 'frappe_docker/**') }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-          secrets: |
+          secret-files: |
             apps_json=${{ github.workspace }}/apps.json
           tags: basapos:16
           outputs: type=docker,dest=/tmp/basapos-image.tar
