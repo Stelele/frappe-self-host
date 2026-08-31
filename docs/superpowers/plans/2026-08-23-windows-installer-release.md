@@ -1,3 +1,7 @@
+> **STATUS: SUPERSEDED (2026-08-31)** — Replaced by the v3 plan:
+> `docs/superpowers/plans/2026-08-31-windows-v3-installer.md`
+> Spec: `docs/superpowers/specs/2026-08-31-wsl-docker-parity-installer-design.md`
+
 # Windows Installer & Release Flow Implementation Plan (M2–M5, "Plan B")
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.

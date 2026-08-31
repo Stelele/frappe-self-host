@@ -22,11 +22,7 @@ echo "192.168.1.100 basapos.local" >> /etc/hosts
 ./scripts/create-site.sh basapos.local
 ```
 
-Windows (PowerShell Admin):
-```powershell
-.\scripts\deploy-all.ps1
-.\scripts\create-site.ps1 basapos.local
-```
+Windows: run the GUI installer — see `docs/superpowers/specs/2026-08-31-wsl-docker-parity-installer-design.md` (v3, in development). The old PowerShell/Docker-Desktop flow and the v2 WSL installer are removed.
 
 ## Mode: OFFLINE vs ONLINE
 
@@ -49,14 +45,14 @@ Then visit `http://basapos.local` in a browser.
 
 ## Individual Steps
 
-| Step | Linux | Windows |
-|------|-------|---------|
-| Install Docker | `./scripts/setup.sh` | `.\scripts\setup.ps1` |
-| Build image | `./scripts/build.sh` | `.\scripts\build.ps1` |
-| Deploy stack | `./scripts/deploy.sh` | `.\scripts\deploy.ps1` |
-| Create site | `./scripts/create-site.sh site` | `.\scripts\create-site.ps1 site` |
-| Verify health | `./scripts/verify.sh` | `.\scripts\verify.ps1` |
-| Tear down | `./scripts/down.sh` | `.\scripts\down.ps1` |
+| Step | Linux |
+|------|-------|
+| Install Docker | `./scripts/setup.sh` |
+| Build image | `./scripts/build.sh` |
+| Deploy stack | `./scripts/deploy.sh` |
+| Create site | `./scripts/create-site.sh site` |
+| Verify health | `./scripts/verify.sh` |
+| Tear down | `./scripts/down.sh` |
 
 ## Containers Survive Reboots
 
@@ -90,27 +86,16 @@ frappe-deploy/
 ├── .env                 # Your config
 ├── compose.custom.yaml  # Generated compose file
 ├── scripts/
-│   ├── setup.sh/ps1     # Install prerequisites
-│   ├── deploy-all.sh/ps1  # Full pipeline
-│   ├── build.sh/ps1     # Build Docker image
-│   ├── deploy.sh/ps1    # Deploy stack
-│   ├── verify.sh/ps1    # Health check
-│   ├── create-site.sh/ps1  # Create a new site
-│   ├── backup.sh/ps1    # Backup all sites
-│   ├── restore.sh       # Restore from backup
+│   ├── setup.sh     # Install prerequisites
+│   ├── deploy-all.sh  # Full pipeline
+│   ├── build.sh     # Build Docker image
+│   ├── deploy.sh    # Deploy stack
+│   ├── verify.sh    # Health check
+│   ├── create-site.sh  # Create a new site
+│   ├── backup.sh    # Backup all sites
+│   ├── restore.sh   # Restore from backup
 │   └── setup-cron.sh    # Install backup cron
 ├── backups/
 └── .github/workflows/
 ```
 
-## Appliance Rootfs (Windows target)
-
-The Windows installer (see `docs/superpowers/specs/2026-08-22-wsl-native-windows-installer-design.md`)
-consumes a WSL-importable rootfs built from `appliance/`:
-
-    bash appliance/build.sh     # build → smoke → stamp → export → validate
-    # → appliance/dist/basapos-rootfs.tar.gz (~1.9 GB)
-
-CI produces the same artifact on every push touching `appliance/**` or `apps.json`
-(artifact `basapos-rootfs` with SHA256SUMS). App changes: edit `apps.json` —
-shared source of truth with the Docker flow.

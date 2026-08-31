@@ -1,3 +1,0 @@
-# BasaPOS settings (key=value, one per line)
-DOMAIN=basapos.local
-LAN_MODE=false
