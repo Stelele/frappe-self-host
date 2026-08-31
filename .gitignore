@@ -20,7 +20,4 @@ certs/
 appliance/dist/
 
 # Installer assembly inputs/outputs
-package/payload/wsl/*.msi
-package/wsl/*.msi
-package/build/
 package.zip

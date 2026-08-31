@@ -1,3 +1,7 @@
+> **STATUS: SUPERSEDED (2026-08-31)** — Describes the removed v2 installer.
+> Current design: `docs/superpowers/specs/2026-08-31-wsl-docker-parity-installer-design.md`
+> Windows ops now live in: `docs/ops/windows-tech-runbook.md` (created by the v3 plan)
+
 # Updating a shop machine (USB workflow)
 
 1. On any online machine: download `BasaPOS-Setup-x.y.z.exe` + `SHA256SUMS`

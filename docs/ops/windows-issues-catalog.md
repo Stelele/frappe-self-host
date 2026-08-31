@@ -1,3 +1,6 @@
+> **STATUS: HISTORICAL (2026-08-31)** — Catalogs issues against the removed v2 installer; kept as field-history. OPEN entries no longer apply to v3.
+> Current design: `docs/superpowers/specs/2026-08-31-wsl-docker-parity-installer-design.md`
+
 # BasaPOS Windows Implementation — Issue Catalog
 
 ```
