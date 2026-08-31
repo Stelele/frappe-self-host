@@ -37,12 +37,19 @@ fi
 export SITES_RULE
 
 COMPOSE_FILES="-f compose.yaml -f overrides/compose.mariadb.yaml -f overrides/compose.redis.yaml -f overrides/compose.proxy.yaml"
-[ "$OFFLINE" = true ] && COMPOSE_FILES="$COMPOSE_FILES -f ../overrides/compose.selfsigned.yaml"
+if [ "$OFFLINE" = true ]; then
+  COMPOSE_FILES="$COMPOSE_FILES -f ../overrides/compose.selfsigned.yaml"
+else
+  COMPOSE_FILES="$COMPOSE_FILES -f overrides/compose.https.yaml"
+fi
 
 mkdir -p "$OUT_DIR"
 cd "$COMPOSE_DIR"
+# --project-directory "$OUT_DIR" makes ../certs resolve relative to the OUTPUT
+# dir: Linux (OUT=frappe_docker) → $REPO_DIR/certs (unchanged); distro staging
+# (OUT=…/opt/basapos/compose) → certs sibling baked for /opt/basapos rewrite.
 # shellcheck disable=SC2086
-docker compose --env-file "$ENV_FILE" $COMPOSE_FILES config > "$OUT_DIR/compose.final.yaml"
+docker compose --project-directory "$OUT_DIR" --env-file "$ENV_FILE" $COMPOSE_FILES config > "$OUT_DIR/compose.final.yaml"
 
 if [ -n "$REWRITE" ]; then
   FROM="${REWRITE%%=*}"; TO="${REWRITE#*=}"

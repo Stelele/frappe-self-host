@@ -57,8 +57,10 @@ else
 fi
 
 echo "Generating compose configuration..."
-bash "$SCRIPT_DIR/gen-compose.sh" "$REPO_DIR" >/dev/null
-mv "$REPO_DIR/compose.final.yaml" "$REPO_DIR/compose.custom.yaml"
+# OUT_DIR = frappe_docker so --project-directory keeps ../certs = $REPO_DIR/certs
+# (byte-identical to the pre-refactor behavior)
+bash "$SCRIPT_DIR/gen-compose.sh" "$REPO_DIR/frappe_docker" >/dev/null
+mv "$REPO_DIR/frappe_docker/compose.final.yaml" "$REPO_DIR/compose.custom.yaml"
 
 echo "Starting all services..."
 docker compose --env-file "$ENV_FILE" -f "$REPO_DIR/compose.custom.yaml" up -d
