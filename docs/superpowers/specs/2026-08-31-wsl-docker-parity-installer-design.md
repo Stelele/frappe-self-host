@@ -2,7 +2,7 @@
 
 ```
 Date:     2026-08-31
-Revision: 1.1 — hardened after 3-agent adversarial review
+Revision: 2.0 — minimal core (install + uninstall only)
 Status:   Approved design — pending spec review
 Supersedes: 2026-08-22-wsl-native-windows-installer-design.md
 ```
@@ -29,8 +29,8 @@ Supersedes: 2026-08-22-wsl-native-windows-installer-design.md
                     │   LINUX      │   WINDOWS                     │
                     │   Docker ✅  │   Docker-in-WSL2 ✅            │
                     │  (unchanged) │   SAME compose stack/images   │
-                    │              │   click-and-run GUI installer │
-                    │              │   no Inno · no Docker Desktop │
+                    │              │   install + uninstall. that's │
+                    │              │   it. no cleverness.          │
                     └──────────────┴───────────────────────────────┘
 ```
 
@@ -42,21 +42,17 @@ Supersedes: 2026-08-22-wsl-native-windows-installer-design.md
 | V2 | Inno Setup `[Code]` driving PowerShell | Endless finicky bugs (see git log) |
 | V3 | WinForms control-panel launcher | Practically useless |
 | V4 | Two app stacks (compose for Linux, systemd units for Windows) | Double the debugging surface |
+| V5 | Speculative features (repair, upgrade drills, S4U experiments) | Complexity budget spent on maybes |
 
 **Core insight:** the Linux flow is reliable *because* it is the boring,
 upstream-maintained `frappe_docker` compose stack. V3 runs that exact
 stack on Windows — inside a WSL2 distro with Docker Engine (no Docker
 Desktop). One app stack, two delivery paths.
 
-### v1.1 review hardening
-
-This revision folds in findings from three adversarial review passes
-(platform feasibility · field ops · consistency). Headline corrections:
-S4U demoted (v2's own field history refuted it — commits `455545f`,
-`8f2e578`, `1b92937`), WSL VM lifetime + memory provisioning added,
-scheduled backups added, corrupt-VHD recovery de-circularized, offline
-image set completed (4 images, not 1), TLS story made explicit, per-install
-DB credentials, CI build-once parity, disk budget closed.
+**v2.0 discipline:** install and uninstall are the ONLY Windows flows.
+Broken install? Uninstall, reinstall. New app version? Uninstall, install,
+restore backup. Every "what if" beyond that is deferred until field
+evidence demands it.
 
 ---
 
@@ -65,26 +61,28 @@ DB credentials, CI build-once parity, disk budget closed.
 ```
 R1  Windows runs the SAME compose stack/images   R5  Fully offline (Zimbabwe);
     as Linux — no second app stack                    updates via USB / rare net
-R2  Click-and-run GUI: install, upgrade,         R6  CI-built releases from repo
-    repair, uninstall — no wizards                     (multi-part assets ≤2GB ea.)
-R3  Auto-start at boot, survives reboots         R7  LAN clients later, no rework
-    AND stays up through sleep/resume/idle        R8  Fresh start — no migration
-R4  Zero-support model ("charge once"),              from v2 field installs
-    including scheduled backups
+R2  Click-and-run GUI: install and                R6  CI-built releases from repo
+    uninstall — nothing else                          (multi-part assets ≤2GB ea.)
+R3  Auto-start at logon, survives reboots         R7  Fresh start — no migration
+    and stays up through idle                          from v2 field installs
+R4  Zero-support model: daily backup timer
+    baked into the distro
 ```
 
 **Audience:** the developer / a technician installs machines on-site.
-"Click and run" replaces polish-for-owner with speed-for-tech.
 
 **Non-goals (v3):**
 
 | Out | Why |
 |-----|-----|
+| Upgrade / repair mechanisms | v2's mess came from speculative flows. Reinstall covers both. Revisit with field evidence. |
+| Watchdog / self-healing | `.wslconfig` + at-logon wrapper cover the real cases; reboot is the fallback |
+| S4U autostart | v2 field history refuted it (`455545f`, `8f2e578`, `1b92937`) |
 | SYSTEM-level pre-login start | WSL distros register per-user — platform limit |
-| Owner-facing control panel | V2 launcher taught us: techs use `wsl` + GUI install only |
-| LAN mode | Designed (flag OFF), ships later — §8 |
-| Changes to Linux/Docker flow | Shares `apps.json` + image + compose generation only |
-| Migration from v2 appliance | R8 — fresh installs only |
+| LAN mode | `settings.txt` placeholder only; mechanism later |
+| Owner-facing control panel | techs use `wsl` + GUI install only |
+| Changes to Linux/Docker flow | shares `apps.json` + image + compose generation only |
+| Log streaming in GUI | open the logs folder instead |
 
 ---
 
@@ -114,8 +112,9 @@ R4  Zero-support model ("charge once"),              from v2 field installs
 │  distro build:  Ubuntu (digest-pinned) + systemd=true                     │
 │                 + Docker Engine + compose plugin                          │
 │                 + /opt/basapos/{images.tar, site-snapshot/,               │
-│                    compose/, firstboot phases}                            │
-│                 + backup.timer + watchdog scripts                         │
+│                    compose/}                                              │
+│                 + basapos-firstboot.service (phased, sentinel)            │
+│                 + basapos-backup.timer (daily — §5b)                      │
 │                                      │                                     │
 │                        docker export → gzip → split → SHA256SUMS          │
 │              release assets: basapos-distro.tar.part-aa/ab/…              │
@@ -126,19 +125,17 @@ R4  Zero-support model ("charge once"),              from v2 field installs
 │                                                                           │
 │  C:\BasaPOS\                                                              │
 │   ├── distro\ext4.vhdx   ◄──── wsl --import BasaPOS                       │
-│   ├── config\            credentials.txt (ACL), settings.txt,             │
-│   │                      install-state.txt, version.txt                   │
-│   ├── logs\              installer + boot + firstboot logs                │
-│   ├── BasaPOS-Setup.exe  copy kept for upgrade/repair/uninstall           │
-│   └── backups\           scheduled + pre-upgrade backups                  │
+│   ├── config\            credentials.txt (ACL) · settings.txt             │
+│   ├── logs\              installer + boot logs                            │
+│   ├── BasaPOS-Setup.exe  kept copy (uninstall + reinstall only)           │
+│   └── backups\           daily backups land here                          │
 │                                                                           │
 │  ┌───────────────────────────────────────────────┐                        │
 │  │  WSL2 distro "BasaPOS" (systemd = PID 1)      │                        │
 │  │                                               │                        │
 │  │  docker.service                               │                        │
-│  │    └─ basapos-firstboot.service (phased,      │                        │
-│  │         sentinel-guarded — §3b)               │                        │
-│  │    └─ basapos-backup.timer (daily — §5b)      │                        │
+│  │    └─ basapos-firstboot.service (§3b)          │                        │
+│  │    └─ basapos-backup.timer (§5b)               │                        │
 │  │    └─ compose stack: traefik · gunicorn ·     │                        │
 │  │       socketio · scheduler · workers ·        │                        │
 │  │       mariadb · redis   [restart: unless-     │                        │
@@ -150,7 +147,7 @@ R4  Zero-support model ("charge once"),              from v2 field installs
 │  │       at firstboot, trusted in Windows store  │                        │
 │  └───────────────────────────────────────────────┘                        │
 │        ▲                                                                  │
-│        │  at-logon task + watchdog timer (§5)                             │
+│        │  at-logon task (§5a)                                             │
 │  hosts: 127.0.0.1 basapos.local → https://basapos.local (:443)            │
 └───────────────────────────────────────────────────────────────────────────┘
 ```
@@ -160,8 +157,8 @@ R4  Zero-support model ("charge once"),              from v2 field installs
 | Decision | Verdict | Why |
 |---|---|---|
 | Docker-in-docker during distro build | ❌ | needs privileged CI, fragile |
-| Ship `images.tar` + firstboot `docker load` | ✅ | plain build/export; first boot 5–15 min on POS-grade disks (GUI shows indeterminate progress + phase log) |
-| `images.tar` after successful load | **deleted** | ~5 GB reclaimed inside vhdx; Repair requires USB (USB is already the update medium) |
+| Ship `images.tar` + firstboot `docker load` | ✅ | plain build/export; first boot 5–15 min on POS-grade disks (GUI shows indeterminate progress + phase status) |
+| `images.tar` after successful load | **deleted** | ~5 GB reclaimed inside vhdx; reinstall = USB, which is already the medium |
 | Site via CI snapshot + firstboot restore | ✅ | fast, deterministic, no secrets baked |
 | Certs / DB creds / admin pw | generated per-install at firstboot | nothing secret ships in the artifact |
 | Compose in distro | generated by the Linux flow's own scripts | kills fork drift at the root |
@@ -205,48 +202,44 @@ target; `app.manifest` → `requireAdministrator`).
 │  ● Waiting for healthy…                      │
 │  ─────────────────────────────────────────── │
 │  ✓ Done — Administrator password: ████ [copy]│
-│  [ Open BasaPOS ]                            │
+│  [ Uninstall ]              [ Open BasaPOS ] │
 └──────────────────────────────────────────────┘
 ```
 
 ```
-INSTALL FLOW                      RE-RUN (existing install detected)
-════════════                      ═════════════════════════════════
-1· prereq check                   Version guard FIRST: Setup compares
-     Win10 19041+ (verify on        payload version vs config\version.txt
-     19044 floor in e2e — §11)      → older payload + existing install =
-     virt enabled? no →              REFUSE with clear message
-       BIOS-disabled = hard        ┌────────┬────────┬────────┐
-       abort w/ instructions       │Upgrade │ Repair │Uninstall│
-     ≥25 GB free (parts×3 basis)   └────────┴────────┴────────┘
+INSTALL FLOW                      RE-RUN / EXISTING INSTALL
+════════════                      ═════════════════════════
+1· prereq check                   Window shows install status
+     Win10 19044+ · virt          + two buttons:
+     enabled? no →                  [ Uninstall ]  [ Reinstall ]
+       BIOS-disabled = hard        Reinstall = uninstall → install
+       abort w/ instructions       (one code path, no partial
+     ≥25 GB free (parts×3 basis)    states, no in-place repair)
 2· WSL present?
      no → dism /online /enable-
           feature VirtualMachinePlatform
           (+ WSL feature) → install
           pinned MSI
-     reboot pending → resume task
-       (at-logon trigger, one-shot,
-       SELF-DELETES on success;
-       install-state.txt marker so
-       Setup resumes at right step;
-       USB unplugged at resume →
-       clear "reinsert USB" state)
+     reboot pending → tell tech
+       "reboot, run Setup again"
+       (no resume task — install is
+       IDEMPOTENT: every step
+       checks-before-does)
 3· stitch parts → verify SHA256
      (BEFORE import)
 4· wsl --import → C:\BasaPOS\distro
-5· write .wslconfig (§5) + hosts
-     entry + settings.txt
-     (LAN_MODE=false)
-6· register at-logon task (§5)
-7· generate 16-char admin pw →
+5· generate 16-char admin pw →
      config\credentials.txt (ACL)
      BEFORE firstboot — firstboot
      phase 2 appends DB root pw to
      the same file via /mnt/c
+6· write .wslconfig (§5a) + hosts
+     entry + settings.txt
+     (LAN_MODE=false placeholder)
+7· register at-logon task (§5a)
 8· firstboot runs (§3b) — GUI
      polls https://basapos.local/
-     api/method/ping (cert-pinned
-     to the per-install cert)
+     api/method/ping (cert-pinned)
      poll: 10s interval · 15 min cap
      · backoff · inside-WSL fallback
      check (v2 lesson: Windows-side
@@ -256,42 +249,38 @@ INSTALL FLOW                      RE-RUN (existing install detected)
      (password shown once, now)
 ```
 
-- GUI drives everything directly: `wsl.exe`, `tar`, `dism`, Task
-  Scheduler COM interop (or `/xml`) — not plain `schtasks` flags for
-  anything non-trivial. **No PowerShell scripts in the install path.**
+- GUI drives everything directly: `wsl.exe`, `tar`, `dism`, hosts file
+  I/O, Task Scheduler via `/create` (at-logon task is all schtasks can
+  express anyway). **No PowerShell scripts in the install path.**
   (CI/e2e tooling may still use PS — that's not the install path.)
 - `wsl.exe` wrapper hardening (hard-won v2 lessons): timeouts on every
   call, `CreateNoWindow`, UTF-16 output decoding, stdout drained before
   wait-for-exit.
-- Idempotent: every step checks-before-does; interrupted installs re-run
-  clean from `install-state.txt`.
-- Repair = fresh re-import + restore of newest scheduled backup from
-  `backups\` (NOT the upgrade drill — that needs a bootable old distro).
-  Repair menu also includes **Reset admin password** (generates new pw →
-  `bench set-admin-password` → rewrites `credentials.txt`).
-- Uninstall button = §7. "Open BasaPOS" = default browser.
-- Log streaming across the WSL boundary is M5 scope; until then the GUI
-  shows phase status + "Open logs folder".
+- Idempotent: every step checks-before-does; any interrupted install is
+  completed by re-running Setup — no resume machinery, no state files
+  beyond `version.txt`.
+- Uninstall button = §6. "Open BasaPOS" = default browser.
 
 ---
 
-## 5 · Autostart, Watchdog & Scheduled Backups
+## 5 · Autostart & Scheduled Backups
 
-### §5a · Autostart — at-logon is PRIMARY
+### §5a · Autostart — at-logon, nothing else
 
 ```
  PLATFORM FACT (paid for in v2 field commits 455545f, 8f2e578, 1b92937):
  S4U sessions strip the user profile — WSL registration (HKCU) and the
- boot wrapper break. S4U is NOT the primary mechanism.
+ boot wrapper break. At-logon only. Kiosk machines run Windows
+ auto-logon anyway.
 
- Primary:  at-logon trigger + Windows auto-logon (kiosk machines should
-           run auto-logon anyway)
- M3 experiment: S4U via Task Scheduler COM/xml — earns its way in only
-           if the e2e drill proves it on the 19041-floor VM
+ .wslconfig provisioned at install (machine-global — documented):
+   vmIdleTimeout=-1 · memory=<sized for ERPNext+MariaDB, e.g. 6GB>
+   (v2 lesson d0da637 — the VM WILL idle out without this)
+   Removed at uninstall (only the keys we wrote).
 ```
 
 ```
- Windows boots / user logs on
+ Windows boots → user logs on
       │
       ▼  (+30s delay)
 ┌──────────────────────────────────────────────────────┐
@@ -302,28 +291,14 @@ INSTALL FLOW                      RE-RUN (existing install detected)
 │   3· restart policies bring stack up                 │
 │   4· hwclock -s (clock resync — sleep drift)         │
 │   5· poll https://…/ping · retry                     │
-│   6· write C:\BasaPOS\status.txt (for "wait-then-    │
-│      open" shortcut — no dead-browser panic at open) │
 └──────────────────────────────────────────────────────┘
 ```
 
-### §5b · Watchdog — one mechanism, three failure classes
+**Launcher independence:** the GUI exe is only needed for
+(un)install. Closing it, deleting it, never opening it — the appliance
+keeps running.
 
-```
- Task: BasaPOS-Watchdog — every 5 min
-   ├─ VM idled out?            → wsl --exec /bin/true restarts it
-   ├─ slept/resumed?           → clock resync + health re-poll
-   │                             (localhostForwarding wedge heals via
-   │                              wsl --shutdown + restart, max 1×/hour)
-   └─ unhealthy?               → restart attempt + red status.txt
-
- .wslconfig provisioned at install (machine-global — documented):
-   vmIdleTimeout=-1 · memory=<sized for ERPNext+MariaDB, e.g. 6GB>
-   (v2 lesson d0da637 — the VM WILL idle out without this)
-   Removed at uninstall (only if we wrote it).
-```
-
-### §5c · Scheduled backups — the zero-support insurance
+### §5b · Scheduled backups — the zero-support insurance
 
 ```
  systemd timer in distro (daily, off-hours):
@@ -332,150 +307,44 @@ INSTALL FLOW                      RE-RUN (existing install detected)
    · skip + log if Windows free space < guard
    · same logic as scripts/backup.sh (Linux parity)
 
- Recovery dependency: corrupt-VHD repair (§10) restores the NEWEST
- scheduled backup — never relies on the broken distro backing itself up.
-```
-
-**Launcher independence:** the GUI exe is only needed for install/upgrade/
-repair/uninstall. Closing it, deleting it, never opening it — the appliance
-keeps running.
-
----
-
-## 6 · Upgrade Drill (zero-support backbone)
-
-```
- TECH ACTION                      WHAT SETUP DOES AUTOMATICALLY
- ═══════════                      ═══════════════════════════════════════
-                                 ┌─────────────────────────────┐
- runs newer                      │ 0· version guard: payload   │
- BasaPOS-Setup.exe ─────────────►│    NEWER than installed?    │
-      💾USB                      │    else REFUSE (no silent   │
-                                 │    downgrade-restore)       │
-                                 └──────────────┬──────────────┘
-                                 ┌─────────────────────────────┐
-                                 │ A· free space re-checked    │
-                                 │    (stitched tar + backup   │
-                                 │    copy-out + new vhdx)     │
-                                 │ B· bench backup --with-     │
-                                 │    files (inside OLD distro)│
-                                 │    ✗ FAILS → HARD STOP:     │
-                                 │    "BACKUP FAILED — nothing │
-                                 │    unregistered" (old       │
-                                 │    distro untouched)        │
-                                 └──────────────┬──────────────┘
-                                                ▼
-                                 ┌─────────────────────────────┐
-                                 │ C· copy backup OUT to       │
-                                 │    backups\pre-upgrade\     │
-                                 │ D· wsl --unregister old     │
-                                 │ E· import NEW distro        │
-                                 │ F· firstboot: load → stack →│
-                                 │    copy backup INTO distro- │
-                                 │    native fs FIRST (v2      │
-                                 │    lesson cb317de) →        │
-                                 │    restore + migrate        │
-                                 │ G· keep existing password   │
-                                 │    if credentials.txt       │
-                                 │    exists, else regenerate  │
-                                 │ H· vhdx --set-sparse + old  │
-                                 │    vhdx deleted → poll      │
-                                 └──────────────┬──────────────┘
-                                                ▼
-                                      data survives ✓
-                                      apps updated ✓
-                                      same USB workflow ✓
-
- Restore failure (F): abort with actionable GUI message + "Retry
- restore" (no re-backup). NEVER silently fall back to the CI snapshot —
- that would look like success while losing all field data.
+ Reinstall restores nothing automatically — but backups\ survives
+ uninstall-by-default, and restoring a backup after reinstall is a
+ documented two-command bench operation in the tech runbook.
 ```
 
 ---
 
-## 7 · Uninstall
+## 6 · Uninstall
 
 ```
 1· wsl --unregister BasaPOS          (removes vhdx + distro)
-2· delete scheduled tasks (appliance + watchdog)
+2· delete at-logon task
 3· remove hosts entry
 4· remove .wslconfig (only the keys we wrote)
 5· delete C:\BasaPOS\                (prompts to keep backups\)
 ```
 
-Clean machine afterward — verified by scripted e2e drill (§11).
+Clean machine afterward — verified by scripted e2e drill (§8).
 
 ---
 
-## 8 · LAN Mode (designed now · flag OFF in v3)
-
-```
-settings.txt:  LAN_MODE=false   ← v3 default (localhost only)
-
-ACTORS (no passive voice): GUI writes the flag; boot wrapper READS
-settings.txt every boot and applies/removes the machine config.
-
-LAN_MODE=true flips on (applied by wrapper at next boot):
-─────────────────────────────
-  firewall rule  TCP 443 · Private profile only   (HTTPS — matches
-       │                                          the compose stack)
-       ▼
-  ┌──────────────────── Windows version? ────────────────────┐
-  ▼ Win11 22H2+                                       Win10 ▼
-mirrored networking                          NAT + portproxy
-(.wslconfig: networkingMode=mirrored)        netsh portproxy 443→distro IP
-host ports bound directly                    refreshed each boot by wrapper
-       │                                          │
-       └────────────┬─────────────────────────────┘
-                    ▼
-  clients add: <server-ip> basapos.local  (hosts file)
-  — same pattern as existing Linux README —
-```
-
----
-
-## 9 · Hardening Matrix
+## 7 · Hardening Matrix
 
 | Surface | Measure |
 |---|---|
 | Services | unprivileged inside distro; root only for import/boot exec |
-| Credentials | per-install: admin pw + DB root pw generated at firstboot (never baked) · ACL-restricted `credentials.txt` · shown once in GUI · Reset path in Repair |
+| Credentials | per-install: admin pw + DB root pw generated at firstboot (never baked) · ACL-restricted `credentials.txt` · shown once in GUI |
 | Secrets in artifact | none baked — site snapshot contains no secrets; `.env` ships as TEMPLATE, secrets filled at firstboot |
 | TLS | per-install self-signed cert (unique CN) generated at firstboot · GUI imports to Windows trust store · health poll cert-pinned |
 | Telemetry | zero — appliance makes no outbound connections by design |
 | Supply chain | base digest-pinned · app branches pinned in `apps.json` · all 4 image tags pinned · WSL MSI version pinned · SHA256SUMS per release |
 | Network | mariadb/redis inside distro network only; localhost-forwarded web ports |
 | Payload integrity | stitch → SHA256 verify BEFORE import |
-| Disk hygiene | compose log rotation (`max-size`/`max-file`) · images.tar deleted post-load · vhdx set-sparse + compact at upgrade · backup retention bounded |
+| Disk hygiene | compose log rotation (`max-size`/`max-file`) · images.tar deleted post-load · backup retention bounded |
 
 ---
 
-## 10 · Failure Modes
-
-| Failure | Handling |
-|---|---|
-| BIOS virt disabled | hard abort with per-machine instructions (no zombie installs) |
-| Reboot pending mid-install (WSL enable) | at-logon resume task, one-shot, self-deleting; `install-state.txt` resumes at correct step; USB unplugged at resume → "reinsert USB" state |
-| Part corrupt / bad USB | SHA256 verify pre-import; actionable message |
-| Import fails / VHD missing later | GUI **Repair**: fresh import + newest scheduled backup restore |
-| Corrupt VHD | Repair (above) — recovery rides §5c scheduled backups, never the dead distro |
-| OLD distro won't boot (upgrade) | drill step B hard-stops BEFORE unregister — data reachable via backups\ |
-| Restore dies mid-upgrade | abort + "Retry restore"; never silent CI-snapshot fallback |
-| Power cut mid-firstboot | per-phase sentinels (§3b); re-run converges; atomic site swap |
-| Site never healthy | poll 10s/15min cap/backoff; "DO NOT power off" state; terminal failure state with ONE actionable instruction; inside-WSL fallback check |
-| VM idles out mid-session | `vmIdleTimeout=-1` + watchdog (§5b) |
-| Sleep/resume (nightly, POS reality) | watchdog: clock resync + forwarding-wedge heal (§5b) |
-| Low disk | guard ≥25 GB at install, re-checked at upgrade with drill-specific threshold; backup timer skips on low disk; log rotation bounded |
-| Disk full at runtime | MariaDB crash-loop prevention: compose log caps + retention + §5c guard; §10 row documents symptom → Repair |
-| WSL update breaks things | pinned MSI shipped in payload |
-| Old-USB downgrade attempt | version guard REFUSES (§6 step 0) |
-| Password lost | Repair → Reset admin password |
-| SmartScreen warn | one-time "More info → Run anyway"; code-signing cert optional later |
-| Third-party AV heuristics | documented tech runbook step: AV exclusion for `C:\BasaPOS` + Setup.exe |
-
----
-
-## 11 · Verification
+## 8 · Verification
 
 ```
  LAYER              CHECK                              WHERE
@@ -497,18 +366,14 @@ host ports bound directly                    refreshed each boot by wrapper
                     CI harness — PS allowed in CI,      every release
                     just not in the install path):
                     · clean install (Win10 19044 +
-                      Win11) · reboot-without-login
+                      Win11) · reboot → at-logon task
                     · delete-Setup-still-works
-                    · sleep/resume → healthy
                     · power-cut-mid-firstboot ×4 phases
-                    · upgrade drill v(n−1)→v(n)
-                    · upgrade-from-DEAD-distro
-                    · old-USB downgrade refused
-                    · disk-full behavior
+                      → re-run Setup converges
+                    · reinstall path (uninstall →
+                      install)
                     · uninstall cleanliness
-                    · at-logon task fires (S4U only
-                      if it earns in)
- GUI                install/upgrade/repair/uninstall    smoke checklist
+ GUI                install/uninstall/reinstall         smoke checklist
  release            parts + Setup.exe + SHA256SUMS      tag push
  CI disk            per-stage cleanup + size budget     every build
                     (buildx prune, delete tars post-use)
@@ -516,7 +381,27 @@ host ports bound directly                    refreshed each boot by wrapper
 
 ---
 
-## 12 · Repo Layout (after)
+## 9 · Failure Modes
+
+| Failure | Handling |
+|---|---|
+| BIOS virt disabled | hard abort with per-machine instructions (no zombie installs) |
+| Reboot needed mid-install (WSL enable) | Setup says "reboot and run again" — install is idempotent, no resume machinery |
+| Part corrupt / bad USB | SHA256 verify pre-import; actionable message |
+| Import fails / VHD missing later | reinstall (uninstall → install) |
+| Power cut mid-firstboot | per-phase sentinels (§3b); re-run Setup converges; atomic site swap |
+| Site never healthy | poll 10s/15min cap/backoff; "DO NOT power off" state; terminal failure state with ONE actionable instruction (reinstall); inside-WSL fallback check |
+| VM idles out mid-session | `vmIdleTimeout=-1` in .wslconfig |
+| Clock drift after sleep | boot wrapper `hwclock -s` at logon; persistent wedge → reboot (documented) |
+| Low disk | guard ≥25 GB at install; backup timer skips on low disk; log rotation bounded |
+| WSL update breaks things | pinned MSI shipped in payload |
+| Password lost | reinstall, or `bench set-admin-password` via `wsl` (runbook) |
+| SmartScreen warn | one-time "More info → Run anyway"; code-signing cert optional later |
+| Third-party AV heuristics | documented tech runbook step: AV exclusion for `C:\BasaPOS` + Setup.exe |
+
+---
+
+## 10 · Repo Layout (after)
 
 ```
 frappe-offline/
@@ -550,20 +435,17 @@ docs/superpowers/plans/ 2026-08-22 + 2026-08-23 plans marked SUPERSEDED
 
 ---
 
-## 13 · Milestones
+## 11 · Milestones
 
 ```
 M1 ██    CI: ONE image build → images.tar (4 pinned) + snapshot +
-         distro tarball; structure/parity asserts; disk-budgeted
-M2 ████   GUI: stitch/verify, features+MSI+reboot-resume, import,
-         firstboot orchestration, cert trust, poll → clean-install
-         E2E on Win11 VM (Win10 19044 in M3)
-M3 ██████ at-logon autostart verified across reboot-without-login;
-         watchdog (idle/sleep/resume) verified; S4U experiment
-         gated here; Win10-floor drill
-M4 ████████ scheduled backups live; upgrade drill (+ dead-distro,
-         downgrade-refused, power-cut drills); uninstall clean
-M5 ██████████ release workflow: parts + Setup.exe + SHA256SUMS;
-         hardening pass; log streaming in GUI; ops docs
-         (USB update · LAN_MODE · tech runbook incl. AV step)
+         distro tarball; structure/parity/kill-drill asserts;
+         disk-budgeted
+M2 ████   GUI: stitch/verify, features+MSI, import, firstboot
+         orchestration, cert trust, poll → clean-install E2E
+         on Win11 VM
+M3 ██████ at-logon autostart verified across reboot; Win10 19044
+         drill; reinstall path; uninstall clean
+M4 ████████ release workflow: parts + Setup.exe + SHA256SUMS;
+         tech runbook (AV step · backup-restore-after-reinstall)
 ```
