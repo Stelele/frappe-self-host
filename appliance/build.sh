@@ -39,7 +39,10 @@ echo "== export rootfs =="
 mkdir -p "$(dirname "$OUT")"
 # export to a temp name and only move into place after validation passes,
 # so dist/ never holds a rejected or truncated artifact
-docker export "$CID" | gzip -1 > "$OUT.tmp"
+# gzip -9 (not -1): the rootfs is embedded raw (nocompression) in the
+# installer, and the Setup.exe must stay under GitHub's 2 GiB release-asset
+# limit. -9 is ~2-3x slower but yields a smaller tarball with headroom.
+docker export "$CID" | gzip -9 > "$OUT.tmp"
 
 echo "== validate =="
 bash appliance/validate.sh "$OUT.tmp"

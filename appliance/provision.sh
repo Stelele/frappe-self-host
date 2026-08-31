@@ -144,6 +144,11 @@ hygiene() {
   echo basapos > /etc/hostname
   apt-get clean
   rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+  # Build caches are pure bloat in a pre-built appliance: uv/yarn/pip all
+  # live under ~/.cache, npm under ~/.npm. Clearing them shrinks the shipped
+  # rootfs (the installer must stay under GitHub's 2 GiB release limit) and
+  # costs nothing at runtime (assets are pre-built; nothing reads ~/.cache).
+  rm -rf /home/frappe/.cache /home/frappe/.npm
   find /var/log -type f -name '*.log' -exec truncate -s 0 {} \; 2>/dev/null || true
   rm -f /var/log/mysqld-provision.log /opt/provision.sh  # provision traces gone
 }
