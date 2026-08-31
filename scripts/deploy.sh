@@ -26,6 +26,7 @@ fi
 
 # Derive SITES_RULE from DOMAIN shorthand
 SITES_RULE=""
+# keep in sync with gen-compose.sh (duplicated for early validation; child re-derives)
 if grep -q '^SITES_RULE=' "$ENV_FILE" 2>/dev/null; then
   SITES_RULE=$(grep '^SITES_RULE=' "$ENV_FILE" | head -1 | cut -d= -f2-)
 elif grep -q '^DOMAIN=' "$ENV_FILE" 2>/dev/null; then

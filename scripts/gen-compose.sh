@@ -27,6 +27,7 @@ OFFLINE=""
 grep -q '^OFFLINE=true' "$ENV_FILE" && OFFLINE=true
 
 SITES_RULE=""
+# keep in sync with deploy.sh
 if grep -q '^SITES_RULE=' "$ENV_FILE" 2>/dev/null; then
   SITES_RULE=$(grep '^SITES_RULE=' "$ENV_FILE" | head -1 | cut -d= -f2-)
 elif grep -q '^DOMAIN=' "$ENV_FILE" 2>/dev/null; then
@@ -43,16 +44,24 @@ else
   COMPOSE_FILES="$COMPOSE_FILES -f overrides/compose.https.yaml"
 fi
 
+# canonicalize OUT_DIR before we cd (relative paths would straddle two CWDs)
 mkdir -p "$OUT_DIR"
+OUT_DIR="$(cd "$OUT_DIR" && pwd)"
+TMP_OUT="$OUT_DIR/.compose.final.yaml.tmp"
+trap 'rm -f "$TMP_OUT"' EXIT
 cd "$COMPOSE_DIR"
-# --project-directory "$OUT_DIR" makes ../certs resolve relative to the OUTPUT
-# dir: Linux (OUT=frappe_docker) → $REPO_DIR/certs (unchanged); distro staging
-# (OUT=…/opt/basapos/compose) → certs sibling baked for /opt/basapos rewrite.
+# --project-directory "$OUT_DIR" rebinds relative bind sources (../certs),
+# the baked project name, AND all volume/network names to OUT_DIR's basename:
+#   Linux   (OUT=frappe_docker)          → $REPO_DIR/certs (unchanged)
+#   staging (OUT=…/opt/basapos/compose)  → certs sibling, later sed→ /opt/basapos
 # shellcheck disable=SC2086
-docker compose --project-directory "$OUT_DIR" --env-file "$ENV_FILE" $COMPOSE_FILES config > "$OUT_DIR/compose.final.yaml"
+docker compose --project-directory "$OUT_DIR" --env-file "$ENV_FILE" $COMPOSE_FILES config > "$TMP_OUT"
+mv "$TMP_OUT" "$OUT_DIR/compose.final.yaml"
 
 if [ -n "$REWRITE" ]; then
   FROM="${REWRITE%%=*}"; TO="${REWRITE#*=}"
+  case "$REWRITE" in *=*) ;; *) echo "ERROR: --rewrite expects FROM=TO (got: $REWRITE)"; exit 1 ;; esac
+  [ -n "$FROM" ] || { echo "ERROR: --rewrite FROM must be non-empty"; exit 1; }
   sed -i "s|$FROM|$TO|g" "$OUT_DIR/compose.final.yaml"
 fi
 echo "wrote $OUT_DIR/compose.final.yaml"
