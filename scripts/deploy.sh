@@ -6,7 +6,6 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(dirname "$SCRIPT_DIR")"
 
 ENV_FILE="$REPO_DIR/.env"
-COMPOSE_DIR="$REPO_DIR/frappe_docker"
 
 if [ ! -f "$ENV_FILE" ]; then
   echo "ERROR: .env file not found at $ENV_FILE"
@@ -41,11 +40,6 @@ fi
 
 export SITES_RULE
 
-echo "Generating compose configuration..."
-cd "$COMPOSE_DIR"
-
-COMPOSE_FILES="-f compose.yaml -f overrides/compose.mariadb.yaml -f overrides/compose.redis.yaml -f overrides/compose.proxy.yaml"
-
 if [ "$OFFLINE" = true ]; then
   echo "Mode: OFFLINE — self-signed HTTPS"
   # Auto-add .local domain to /etc/hosts for offline access
@@ -58,14 +52,13 @@ if [ "$OFFLINE" = true ]; then
   fi
   # Generate self-signed SSL certs and enable HTTPS
   bash "$SCRIPT_DIR/setup-ssl.sh"
-  COMPOSE_FILES="$COMPOSE_FILES -f ../overrides/compose.selfsigned.yaml"
 else
   echo "Mode: ONLINE — HTTPS with Let's Encrypt"
-  COMPOSE_FILES="$COMPOSE_FILES -f overrides/compose.https.yaml"
 fi
 
-# shellcheck disable=SC2086
-docker compose --env-file "$ENV_FILE" $COMPOSE_FILES config > "$REPO_DIR/compose.custom.yaml"
+echo "Generating compose configuration..."
+bash "$SCRIPT_DIR/gen-compose.sh" "$REPO_DIR" >/dev/null
+mv "$REPO_DIR/compose.final.yaml" "$REPO_DIR/compose.custom.yaml"
 
 echo "Starting all services..."
 docker compose --env-file "$ENV_FILE" -f "$REPO_DIR/compose.custom.yaml" up -d
