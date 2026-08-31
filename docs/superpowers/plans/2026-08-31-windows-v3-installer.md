@@ -155,12 +155,19 @@ fi
 export SITES_RULE
 
 COMPOSE_FILES="-f compose.yaml -f overrides/compose.mariadb.yaml -f overrides/compose.redis.yaml -f overrides/compose.proxy.yaml"
-[ "$OFFLINE" = true ] && COMPOSE_FILES="$COMPOSE_FILES -f ../overrides/compose.selfsigned.yaml"
+if [ "$OFFLINE" = true ]; then
+  COMPOSE_FILES="$COMPOSE_FILES -f ../overrides/compose.selfsigned.yaml"
+else
+  COMPOSE_FILES="$COMPOSE_FILES -f overrides/compose.https.yaml"
+fi
 
 mkdir -p "$OUT_DIR"
 cd "$COMPOSE_DIR"
+# --project-directory "$OUT_DIR" makes ../certs resolve relative to the OUTPUT
+# dir: Linux (OUT=frappe_docker) → $REPO_DIR/certs (unchanged); distro staging
+# (OUT=…/opt/basapos/compose) → certs sibling baked for /opt/basapos rewrite.
 # shellcheck disable=SC2086
-docker compose --env-file "$ENV_FILE" $COMPOSE_FILES config > "$OUT_DIR/compose.final.yaml"
+docker compose --project-directory "$OUT_DIR" --env-file "$ENV_FILE" $COMPOSE_FILES config > "$OUT_DIR/compose.final.yaml"
 
 if [ -n "$REWRITE" ]; then
   FROM="${REWRITE%%=*}"; TO="${REWRITE#*=}"
@@ -175,10 +182,10 @@ Replace scripts/deploy.sh lines 28-68 (SITES_RULE derivation through config gene
 
 ```bash
 export SITES_RULE
-bash "$SCRIPT_DIR/gen-compose.sh" "$REPO_DIR" >/dev/null
-# gen-compose ran with cwd frappe_docker; continue from repo root
-cd "$REPO_DIR"
-mv compose.final.yaml compose.custom.yaml
+# OUT_DIR = frappe_docker so --project-directory keeps ../certs = $REPO_DIR/certs
+# (byte-identical to the pre-refactor behavior)
+bash "$SCRIPT_DIR/gen-compose.sh" "$REPO_DIR/frappe_docker" >/dev/null
+mv "$REPO_DIR/frappe_docker/compose.final.yaml" "$REPO_DIR/compose.custom.yaml"
 ```
 
 Keep deploy.sh's existing OFFLINE hosts-entry block (lines 49-58) and `setup-ssl.sh` call (line 60) BEFORE this call, and keep the `up -d` section after, unchanged. Add `export SITES_RULE` derivation back (deploy.sh still derives SITES_RULE for the hosts block — reuse the same grep block; duplication of 6 lines is acceptable and keeps gen-compose.sh single-purpose).
