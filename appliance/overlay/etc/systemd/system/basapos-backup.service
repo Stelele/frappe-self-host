@@ -1,0 +1,10 @@
+[Unit]
+Description=BasaPOS daily backup
+After=docker.service basapos-firstboot.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/basapos-backup
+
+[Install]
+WantedBy=multi-user.target

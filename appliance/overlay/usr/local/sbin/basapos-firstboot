@@ -1,0 +1,87 @@
+#!/usr/bin/env bash
+# BasaPOS firstboot — phased, crash-safe. One sentinel per phase under
+# /var/lib/basapos/firstboot/. A power-cut at ANY point converges on re-run.
+set -uo pipefail
+
+B=/opt/basapos
+C=$B/compose
+STATE=/var/lib/basapos/firstboot
+CREDS=/mnt/c/BasaPOS/config
+LOG=/var/log/basapos-firstboot.log
+
+log() { echo "$(date -Us) [$1] $2" | tee -a "$LOG" >&2; }
+done_phase() { [ -f "$STATE/$1" ]; }
+mark() { touch "$STATE/$1"; }
+dc() { docker compose --env-file "$C/.env" -f "$C/compose.final.yaml" "$@"; }
+
+mkdir -p "$STATE"
+
+ADMIN_PW=""
+[ -r "$CREDS/install-password.txt" ] && ADMIN_PW="$(tr -d '\r\n' < "$CREDS/install-password.txt")"
+[ -n "$ADMIN_PW" ] || { log fatal "missing $CREDS/install-password.txt — GUI must write it before import"; exit 1; }
+
+if ! done_phase loaded; then
+  log 1 "docker load images.tar"
+  docker load -i "$B/images.tar" >>"$LOG" 2>&1 && mark loaded || { log 1 "load failed"; exit 1; }
+fi
+
+if ! done_phase env; then
+  log 2 "generate DB password + .env"
+  DBPW="$(tr -dc A-Za-z0-9 </dev/urandom | head -c 24)"
+  sed "s|__GENERATED_AT_FIRSTBOOT__|$DBPW|" "$C/.env.template" > "$C/.env"
+  printf 'DB_ROOT_PASSWORD=%s\n' "$DBPW" >> "$CREDS/credentials.txt"
+  mark env
+fi
+
+if ! done_phase stack; then
+  log 3 "start db + cache tiers"
+  dc up -d mariadb-db redis-cache redis-queue >>"$LOG" 2>&1 \
+    && sleep 15 && mark stack || { log 3 "tier start failed"; exit 1; }
+fi
+
+if ! done_phase site; then
+  log 4 "new-site basapos.local"
+  APPS="$(dc run --rm --no-deps backend sh -c "cat sites/apps.txt | grep -v '^frappe$' | tr '\n' ' '" 2>>"$LOG")"
+  [ -n "$APPS" ] || { log 4 "apps.txt unreadable"; exit 1; }
+  FLAGS=""
+  for a in $APPS; do FLAGS="$FLAGS --install-app $a"; done
+  # shellcheck disable=SC2086
+  dc run --rm --no-deps backend bench new-site \
+    --mariadb-user-host-login-scope=% \
+    --db-root-password "$(grep '^DB_ROOT_PASSWORD=' "$CREDS/credentials.txt" | cut -d= -f2)" \
+    $FLAGS --admin-password "$ADMIN_PW" basapos.local >>"$LOG" 2>&1 \
+  && dc run --rm --no-deps backend bench --site basapos.local migrate >>"$LOG" 2>&1 \
+  && dc run --rm --no-deps backend bench --site basapos.local build >>"$LOG" 2>&1 \
+  && dc run --rm --no-deps -T backend tar -chf - -C /home/frappe/frappe-bench assets 2>>"$LOG" \
+     | dc run --rm --no-deps -T frontend sh -c 'tar -xf - -C /home/frappe/frappe-bench' >>"$LOG" 2>&1 \
+  && mark site || { log 4 "site creation failed"; exit 1; }
+fi
+
+if ! done_phase cert; then
+  log 5 "per-install certificate"
+  RAND="$(tr -dc a-z0-9 </dev/urandom | head -c 8)"
+  openssl req -x509 -nodes -days 3650 -newkey rsa:2048 \
+    -keyout "$B/certs/key.pem" -out "$B/certs/cert.pem" \
+    -subj "/CN=basapos-$RAND.local" -addext "subjectAltName=DNS:basapos.local" >>"$LOG" 2>&1
+  cp "$B/certs/cert.pem" "$CREDS/basapos.crt"
+  cat > "$B/certs/dynamic.yml" <<'EOF'
+tls:
+  certificates:
+    - certFile: /opt/basapos/certs/cert.pem
+      keyFile: /opt/basapos/certs/key.pem
+EOF
+  mark cert
+fi
+
+if ! done_phase booted; then
+  log 6 "full stack up --wait"
+  dc up -d --wait >>"$LOG" 2>&1 && mark booted || { log 6 "stack failed to come up"; exit 1; }
+fi
+
+if ! done_phase done; then
+  log 7 "cleanup images.tar"
+  rm -f "$B/images.tar"
+  mark done
+fi
+
+log done "firstboot complete"

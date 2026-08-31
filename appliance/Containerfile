@@ -1,0 +1,24 @@
+# BasaPOS v3 distro — Ubuntu + Docker Engine + payload mount point.
+# Built from repo root: docker build -f appliance/Containerfile -t basapos-distro:16 .
+FROM ubuntu@sha256:2edbbc5dc405e9612ba3584ce95480277e3eb374407b5505fe26f17df77c7dbc
+
+ENV DEBIAN_FRONTEND=noninteractive LC_ALL=C.UTF-8 LANG=C.UTF-8
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      ca-certificates curl systemd systemd-sysv docker.io docker-compose-v2 \
+      openssl e2fsprogs util-linux \
+    && rm -rf /var/lib/apt/lists/*
+
+# ---- payload scaffold (build.sh COPYies images.tar + compose/ here) --------
+RUN mkdir -p /opt/basapos/compose /opt/basapos/certs /var/lib/basapos/firstboot
+
+COPY appliance/compose/.env.template /opt/basapos/compose/.env.template
+COPY appliance/overlay/ /
+
+# ---- systemd wiring ---------------------------------------------------------
+RUN chmod 0755 /usr/local/sbin/basapos-firstboot /usr/local/sbin/basapos-backup \
+    && mkdir -p /etc/systemd/system/multi-user.target.wants \
+    && ln -s /etc/systemd/system/basapos-firstboot.service /etc/systemd/system/multi-user.target.wants/basapos-firstboot.service \
+    && ln -s /etc/systemd/system/basapos-backup.timer /etc/systemd/system/timers.target.wants/basapos-backup.timer \
+    && systemctl enable docker.service 2>/dev/null || true \
+    && printf '' > /etc/machine-id

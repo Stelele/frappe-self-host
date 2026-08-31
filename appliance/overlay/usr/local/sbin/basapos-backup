@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# Daily backup: bench --with-files → copy OUT to Windows; keep last 7.
+set -uo pipefail
+C=/opt/basapos/compose
+DEST=/mnt/c/BasaPOS/backups
+TS=$(date +%Y%m%d_%H%M%S)
+KEEP=7
+LOG=/var/log/basapos-backup.log
+
+log() { echo "$(date -Us) $*" >> "$LOG"; }
+
+AVAIL_KB=$(df --output=avail /mnt/c 2>/dev/null | tail -1)
+[ "${AVAIL_KB:-0}" -lt 5242880 ] && { log "skip: <5GB free on /mnt/c"; exit 0; }
+
+mkdir -p "$DEST"
+docker compose --env-file "$C/.env" -f "$C/compose.final.yaml" exec -T backend \
+  bench --site basapos.local backup --with-files \
+  --backup-path "/home/frappe/frappe-bench/backups/$TS" >>"$LOG" 2>&1 || { log "bench backup failed"; exit 1; }
+
+docker compose --env-file "$C/.env" -f "$C/compose.final.yaml" cp \
+  "backend:/home/frappe/frappe-bench/backups/$TS" "$DEST/$TS" >>"$LOG" 2>&1 \
+  && docker compose --env-file "$C/.env" -f "$C/compose.final.yaml" exec -T backend \
+      rm -rf "/home/frappe/frappe-bench/backups/$TS" >>"$LOG" 2>&1 || { log "copy-out failed"; exit 1; }
+
+ls -1dt "$DEST"/20* 2>/dev/null | tail -n +$((KEEP + 1)) | xargs -r rm -rf
+log "backup ok: $DEST/$TS"
