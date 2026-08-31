@@ -67,7 +67,7 @@ $size = (Get-Item $out).Length
 # GitHub release assets have a hard 2 GiB (2147483648 byte) limit. Fail at
 # BUILD time (not release time) if we'd exceed it.
 if ($size -ge 2147483648) {
-  throw ("Installer is {0:N2} GiB — exceeds GitHub's 2 GiB release-asset limit. " -f ($size / 1GB) +
-         "Shrink the rootfs (gzip -9, clear build caches in provision.sh hygiene).")
+  $msg = "Installer is {0:N2} GiB - exceeds GitHub's 2 GiB release-asset limit (2147483648 bytes). Shrink the rootfs (gzip -9, clear build caches in provision.sh hygiene)." -f ($size / 1GB)
+  throw $msg
 }
 Write-Host ("Done. Installer: {0} ({1:N2} GB)" -f $out, ($size / 1GB))
