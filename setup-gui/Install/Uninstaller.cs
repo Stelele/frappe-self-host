@@ -8,6 +8,18 @@ public sealed class Uninstaller(ISetupUi ui)
     {
         ui.Status("Unregistering distro…");
         WslRunner.Wsl($"--unregister {Paths.DistroName}", 300);
+        if (Detect.IsInstalled())
+        {
+            // real failure (not mere absence): WSL busy or AV lock on ext4.vhdx —
+            // deleting C:\BasaPOS now would half-remove and leave a locked vhdx
+            ui.Status("Unregister incomplete — retrying after wsl --shutdown…");
+            WslRunner.Wsl("--shutdown", 120);
+            WslRunner.Wsl($"--unregister {Paths.DistroName}", 300);
+        }
+        if (Detect.IsInstalled())
+            throw new InvalidOperationException(
+                "Could not unregister the BasaPOS distro (WSL busy or antivirus lock). " +
+                "Reboot the machine and run Uninstall again.");
         ui.Status("Removing autostart task…");
         TaskRegistrar.Delete();
         BootWrapper.Delete();

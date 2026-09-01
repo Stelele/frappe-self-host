@@ -24,8 +24,11 @@ public sealed class InstallOrchestrator(ISetupUi ui)
 
         ui.Status("Importing distro…");                                 // 4
         Directory.CreateDirectory(Paths.DistroDir);
-        WslRunner.Wsl($"--import {Paths.DistroName} \"{Paths.DistroDir}\" \"{tar}\" --version 2",
+        var imp = WslRunner.Wsl($"--import {Paths.DistroName} \"{Paths.DistroDir}\" \"{tar}\" --version 2",
             1800, l => ui.Status("  " + l));
+        if (imp.ExitCode != 0)
+            throw new InvalidOperationException(
+                $"wsl --import failed (exit {imp.ExitCode}).\n{imp.Output}\n{imp.Error}");
         File.Delete(tar);
 
         ui.Status("Writing credentials…");                              // 5
@@ -46,7 +49,10 @@ public sealed class InstallOrchestrator(ISetupUi ui)
         TaskRegistrar.Register();
 
         ui.Status("First boot: loading images + creating site (5-15 min)…"); // 8
-        WslRunner.Wsl($"-d {Paths.DistroName} --exec /bin/true", 300);
+        var boot = WslRunner.Wsl($"-d {Paths.DistroName} --exec /bin/true", 300);
+        if (boot.ExitCode != 0)
+            throw new InvalidOperationException(
+                $"Could not start the BasaPOS distro (exit {boot.ExitCode}).\n{boot.Output}\n{boot.Error}");
         var ok = HealthPoller.WaitHealthy(s => ui.Status("  " + s)).GetAwaiter().GetResult();
 
         ui.Status("Trusting certificate…");                             // 9

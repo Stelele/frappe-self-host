@@ -6,7 +6,7 @@ public static class CertTrust
 {
     public static void Trust(string certFile)
     {
-        using var cert = new X509Certificate2(certFile);
+        using var cert = X509CertificateLoader.LoadCertificateFromFile(certFile);
         using var store = new X509Store(StoreName.Root, StoreLocation.LocalMachine);
         store.Open(OpenFlags.ReadWrite);
         store.Remove(cert);   // idempotent replace (unique per-install CN)

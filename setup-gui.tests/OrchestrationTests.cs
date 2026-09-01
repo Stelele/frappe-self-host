@@ -11,6 +11,8 @@ public class OrchestrationTests
         Assert.Contains("hwclock -s", s);
         Assert.Contains("https://basapos.local/api/method/ping", s);
         Assert.Contains("if %tries% geq 60 exit /b 1", s);
+        Assert.Contains("ping -n 11 127.0.0.1", s);
+        Assert.DoesNotContain("timeout /t", s);
         Assert.DoesNotContain("%USERPROFILE%", s); // ProgramData, not profile (v2 lesson)
     }
 

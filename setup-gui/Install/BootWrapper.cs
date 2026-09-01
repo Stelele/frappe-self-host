@@ -14,7 +14,7 @@ set /a tries=0
 if %errorlevel%==0 exit /b 0
 set /a tries+=1
 if %tries% geq 60 exit /b 1
-timeout /t 10 /nobreak >nul
+ping -n 11 127.0.0.1 >nul
 goto wait
 """;
 

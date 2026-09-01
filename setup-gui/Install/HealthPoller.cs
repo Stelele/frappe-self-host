@@ -7,10 +7,10 @@ public static class HealthPoller
 {
     public static async Task<bool> WaitHealthy(Action<string> status, int maxMinutes = 15)
     {
+        // NOTE: pin is (re-)read lazily inside the loop — on fresh installs
+        // basapos.crt only appears when firstboot phase 5 completes, minutes in
         string? pinnedThumbprint = null;
         var certFile = Path.Combine(Paths.ConfigDir, "basapos.crt");
-        if (File.Exists(certFile))
-            pinnedThumbprint = new X509Certificate2(certFile).Thumbprint;
 
         using var handler = new HttpClientHandler
         {
@@ -25,6 +25,17 @@ public static class HealthPoller
         while (DateTime.UtcNow < deadline)
         {
             attempt++;
+
+            if (pinnedThumbprint is null && File.Exists(certFile))
+            {
+                try
+                {
+                    pinnedThumbprint = X509CertificateLoader.LoadCertificateFromFile(certFile).Thumbprint;
+                    status("Certificate pin loaded.");
+                }
+                catch { /* cert mid-write — retry next poll */ }
+            }
+
             try
             {
                 var r = await http.GetAsync(Paths.SiteUrl + "/api/method/ping");
@@ -37,7 +48,8 @@ public static class HealthPoller
                 // inside-WSL fallback (v2 lesson: Windows-side polling can lie)
                 try
                 {
-                    var inWsl = WslRunner.Wsl(
+                    var inWsl = WslRunner.RunAnsi(
+                        Environment.SystemDirectory + @"\wsl.exe",
                         $"-d {Paths.DistroName} -- curl -sk -o /dev/null -w %{{http_code}} https://localhost/api/method/ping",
                         30);
                     if (inWsl.Output.Trim().EndsWith("200"))
