@@ -25,3 +25,43 @@ jobs:
             bash -n "$f" || fail=1
           done
           exit $fail
+
+  distro:
+    needs: lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - name: Free disk + report
+        run: |
+          docker system prune -af >/dev/null 2>&1 || true
+          df -h /
+      - name: Build, validate, split
+        run: bash appliance/build.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: basapos-distro
+          retention-days: 14
+          path: appliance/dist/
+
+  firstboot-drill:
+    needs: distro
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: basapos-distro
+          path: artifact
+      - name: Reconstruct distro image from parts
+        run: |
+          cd artifact
+          grep 'basapos-distro.tar.part-' SHA256SUMS | sha256sum -c -
+          cd ..
+          cat artifact/basapos-distro.tar.part-* > basapos-distro.tar.gz
+          docker import basapos-distro.tar.gz basapos-distro:drill
+      - name: Kill-at-every-phase drill
+        run: bash appliance/test-firstboot.sh basapos-distro:drill
