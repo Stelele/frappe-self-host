@@ -615,12 +615,14 @@ echo "VALIDATE OK"
 
 - [ ] **Step 3: Commit**
 
-```bash
-chmod +x appliance/build.sh appliance/validate.sh
-shellcheck -S error appliance/build.sh appliance/validate.sh
-git add appliance/
-git commit -m "feat(appliance): v3 build+validate — 4-image save, staged payload, split assets"
-```
+> **AMENDMENT (post-implementation, applied in commit 4ec635e):** the
+> validate.sh listing above had three bugs against real `docker export`
+> output, found empirically and fixed in the committed file: (1) export
+> members have NO leading slash → path asserts normalize `q="${1#/}"`;
+> (2) usrmerged Ubuntu has no `/sbin/init` member → assert
+> `/usr/lib/systemd/systemd` instead; (3) `tar -xOf` extraction of
+> `/opt/...` members needs the same slash normalization (X() helper).
+> Source of truth: `appliance/validate.sh` as committed.
 
 Note: full local run of `build.sh` requires Docker + the frappe_docker submodule (`git submodule update --init`). The CI job in Task 5 is the authoritative executor; local smoke of `validate.sh` alone is fine.
 
