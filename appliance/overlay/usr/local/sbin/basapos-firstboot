@@ -11,7 +11,7 @@ LOG=/var/log/basapos-firstboot.log
 WINLOG=/mnt/c/BasaPOS/logs/firstboot.log
 
 log() {
-  local line; line="$(date -Us) [$1] $2"
+  local line; line="$(date -u +%FT%TZ) [$1] $2"
   echo "$line" | tee -a "$LOG" >&2
   echo "$line" >> "$WINLOG" 2>/dev/null || true
 }

@@ -7,7 +7,7 @@ TS=$(date +%Y%m%d_%H%M%S)
 KEEP=7
 LOG=/var/log/basapos-backup.log
 
-log() { echo "$(date -Us) $*" >> "$LOG"; }
+log() { echo "$(date -u +%FT%TZ) $*" >> "$LOG"; }
 
 exec 9>/var/lock/basapos-backup.lock
 flock -n 9 || { log "another backup already running — skip"; exit 0; }
