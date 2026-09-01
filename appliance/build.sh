@@ -7,7 +7,9 @@ cd "$ROOT"
 
 IMAGE_TAG=basapos:16
 DISTRO_TAG=basapos-distro:16
-OUT_DIR=appliance/dist
+# absolute: step 6/6 cd's into OUT_DIR while still passing $OUT_DIR-relative
+# paths around — a relative value would double-resolve and break
+OUT_DIR="$ROOT/appliance/dist"
 PART_SIZE=1900m
 # stage on the artifact disk by default (/tmp may be a small tmpfs on CI);
 # override with BASAPOS_STAGE_DIR for exotic runners
