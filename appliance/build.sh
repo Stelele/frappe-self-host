@@ -15,7 +15,7 @@ PART_SIZE=1900m
 # override with BASAPOS_STAGE_DIR for exotic runners
 # MUST be absolute: gen-compose --rewrite strips this prefix from the
 # absolute bind paths docker compose config emits
-STAGE="${BASAPOS_STAGE_DIR:-$ROOT/$OUT_DIR.stage}"
+STAGE="${BASAPOS_STAGE_DIR:-$OUT_DIR.stage}"
 case "$STAGE" in /*) ;; *) STAGE="$PWD/$STAGE" ;; esac
 case "$STAGE" in "/"|"."|"") echo "ERROR: BASAPOS_STAGE_DIR must be a dedicated staging dir (got '$STAGE')"; exit 1 ;;
 esac
