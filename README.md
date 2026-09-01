@@ -22,7 +22,14 @@ echo "192.168.1.100 basapos.local" >> /etc/hosts
 ./scripts/create-site.sh basapos.local
 ```
 
-Windows: run the GUI installer — see `docs/superpowers/specs/2026-08-31-wsl-docker-parity-installer-design.md` (v3, in development). The old PowerShell/Docker-Desktop flow and the v2 WSL installer are removed.
+Windows: run the GUI installer — see `docs/ops/windows-tech-runbook.md`.
+1. Download a release: `BasaPOS-Setup.exe` + the whole `payload/` folder (all parts + `SHA256SUMS` + `wsl.msi`).
+2. Copy both to the target machine (same folder) — fully offline.
+3. Run `BasaPOS-Setup.exe` (admin). Click **Install**. First boot takes 5–15 min (image load + site creation).
+4. Password is shown once at the end and saved to `C:\BasaPOS\config\credentials.txt`.
+
+Uninstall = same exe → **Uninstall** (keeps `C:\BasaPOS\backups`).
+New app version = uninstall → install from new USB → restore latest backup (runbook: `docs/ops/windows-tech-runbook.md`).
 
 ## Mode: OFFLINE vs ONLINE
 

@@ -149,3 +149,23 @@ jobs:
             ${{ runner.temp }}/basapos-setup.log
             C:/BasaPOS/logs/**
           if-no-files-found: ignore
+
+  release:
+    needs: [e2e-windows, firstboot-drill]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { name: basapos-payload, path: out }
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          (cd out && sha256sum BasaPOS-Setup.exe >> payload/SHA256SUMS)
+          gh release create "${{ github.ref_name }}" out/BasaPOS-Setup.exe out/payload/* \
+            --title "${{ github.ref_name }}" \
+            --notes "BasaPOS offline installer. Copy BasaPOS-Setup.exe + payload/ to USB. Verify SHA256SUMS before running."
