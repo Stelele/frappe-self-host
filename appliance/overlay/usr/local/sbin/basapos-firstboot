@@ -35,6 +35,10 @@ if ! done_phase env; then
   log 2 "generate DB password + .env"
   DBPW="$(tr -dc A-Za-z0-9 </dev/urandom | head -c 24)"
   sed "s|__GENERATED_AT_FIRSTBOOT__|$DBPW|" "$C/.env.template" > "$C/.env"
+  # compose.final.yaml was resolved by `docker compose config` at build time —
+  # the DB_PASSWORD placeholder is baked as a literal and must be replaced
+  # here too (env-file cannot re-resolve plain literals)
+  sed -i "s|__GENERATED_AT_FIRSTBOOT__|$DBPW|" "$C/compose.final.yaml"
   printf 'DB_ROOT_PASSWORD=%s\n' "$DBPW" >> "$CREDS/credentials.txt"
   mark env
 fi

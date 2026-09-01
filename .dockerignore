@@ -1,0 +1,5 @@
+*
+!appliance/Containerfile
+!appliance/overlay/
+!appliance/compose/
+!appliance/.payload/

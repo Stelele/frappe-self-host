@@ -15,6 +15,9 @@ PART_SIZE=1900m
 # absolute bind paths docker compose config emits
 STAGE="${BASAPOS_STAGE_DIR:-$ROOT/$OUT_DIR.stage}"
 case "$STAGE" in /*) ;; *) STAGE="$PWD/$STAGE" ;; esac
+case "$STAGE" in "/"|"."|"") echo "ERROR: BASAPOS_STAGE_DIR must be a dedicated staging dir (got '$STAGE')"; exit 1 ;;
+esac
+# NOTE: $STAGE is REMOVED (rm -rf) on exit — never point it at data you need
 rm -rf "$STAGE"; mkdir -p "$STAGE"
 mkdir -p "$OUT_DIR"
 
@@ -35,41 +38,47 @@ docker pull -q traefik:v3.6
 docker save "$IMAGE_TAG" mariadb:11.8 redis:8.6-alpine traefik:v3.6 \
   -o "$STAGE/images.tar"
 docker image inspect "$IMAGE_TAG" --format '{{.Id}}' > "$STAGE/image-digest.txt"
+docker image rm mariadb:11.8 redis:8.6-alpine traefik:v3.6 >/dev/null 2>&1 || true
 
 echo "== 3/6 generate compose bundle (same scripts as Linux) =="
 mkdir -p "$STAGE/opt/basapos/compose" "$STAGE/opt/basapos/certs"
+ENV_BAK="$ROOT/.env.build.bak"
 ENV_HAD_ONE=0
-[ -f .env ] && { cp .env "$STAGE/user-env.bak"; ENV_HAD_ONE=1; }
+[ -f .env ] && { cp .env "$ENV_BAK"; ENV_HAD_ONE=1; }
 restore_env() {
-  if [ "$ENV_HAD_ONE" = 1 ]; then mv -f "$STAGE/user-env.bak" .env
-  else rm -f .env; fi
+  if [ "$ENV_HAD_ONE" = 1 ]; then mv -f "$ENV_BAK" .env
+  else rm -f .env .env.build.bak; fi
 }
-trap 'restore_env; rm -rf "$STAGE"; rm -rf "$ROOT/appliance/.payload"' EXIT
+CID=""
+trap 'restore_env; [ -n "$CID" ] && docker rm -f "$CID" >/dev/null 2>&1 || true; rm -rf "$STAGE"; rm -rf "$ROOT/appliance/.payload"' EXIT
 sed -e 's|^DB_PASSWORD=.*|DB_PASSWORD=__GENERATED_AT_FIRSTBOOT__|' \
-    -e 's|^ADMIN_PASSWORD=.*|ADMIN_PASSWORD=install-time|' .env.example > .env
+    -e 's|^ADMIN_PASSWORD=.*|ADMIN_PASSWORD=install-time|' \
+    -e 's|^PULL_POLICY=.*|PULL_POLICY=never|' .env.example > .env
 bash scripts/gen-compose.sh "$STAGE/opt/basapos/compose" --rewrite "$STAGE=" >/dev/null
 cp "$STAGE/opt/basapos/compose/compose.final.yaml" "$STAGE/compose-parity.yaml"
 
 echo "== 4/6 build distro image (payload staged into context) =="
 mkdir -p appliance/.payload/opt/basapos
 cp "$STAGE/images.tar" appliance/.payload/opt/basapos/images.tar
+rm -f "$STAGE/images.tar"   # .payload copy is now the only consumer on disk
 cp -r "$STAGE/opt/basapos/compose" appliance/.payload/opt/basapos/compose
 cp "$STAGE/image-digest.txt" appliance/.payload/opt/basapos/image-digest.txt
 cp "$STAGE/compose-parity.yaml" appliance/.payload/compose-parity.yaml
+docker builder prune -f >/dev/null 2>&1 || true
 docker build -f appliance/Containerfile -t "$DISTRO_TAG" .
 rm -rf appliance/.payload
-docker builder prune -f >/dev/null 2>&1 || true
 
 echo "== 5/6 export + gzip =="
 CID=$(docker create "$DISTRO_TAG")
 docker export "$CID" | gzip -6 > "$OUT_DIR/basapos-distro.tar.gz.tmp"
 docker rm "$CID" >/dev/null
 
-echo "== 6/6 validate → split → checksums =="
-bash appliance/validate.sh "$OUT_DIR/basapos-distro.tar.gz.tmp"
-mv "$OUT_DIR/basapos-distro.tar.gz.tmp" "$OUT_DIR/basapos-distro.tar.gz"
+echo "== 6/6 validate → split → checksums → finalize =="
 cd "$OUT_DIR"
 rm -f basapos-distro.tar.part-* SHA256SUMS
-split -b "$PART_SIZE" -d basapos-distro.tar.gz basapos-distro.tar.part-
-sha256sum basapos-distro.tar.gz basapos-distro.tar.part-* > SHA256SUMS
+bash "$ROOT/appliance/validate.sh" "$OUT_DIR/basapos-distro.tar.gz.tmp"
+split -b "$PART_SIZE" -d basapos-distro.tar.gz.tmp basapos-distro.tar.part-
+sha256sum basapos-distro.tar.gz.tmp basapos-distro.tar.part-* \
+  | sed 's|basapos-distro\.tar\.gz\.tmp|basapos-distro.tar.gz|' > SHA256SUMS
+mv basapos-distro.tar.gz.tmp basapos-distro.tar.gz
 ls -lh
