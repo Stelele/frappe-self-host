@@ -1,10 +1,12 @@
 param([string]$SetupExe)
 $ErrorActionPreference = 'Stop'
 Write-Host "=== drill: uninstall ==="
-& $SetupExe --uninstall --unattended
-if ($LASTEXITCODE -ne 0) {
-    Get-Content "$env:TEMP\basapos-setup.log" -ErrorAction SilentlyContinue | Select-Object -Last 40
-    throw "uninstall exited $LASTEXITCODE"
+$p = Start-Process -FilePath $SetupExe -ArgumentList '--uninstall','--unattended' -Wait -PassThru -NoNewWindow
+if ($p.ExitCode -ne 0) {
+    $logFile = Join-Path $env:TEMP 'basapos-setup.log'
+    if (-not (Test-Path $logFile)) { $logFile = 'C:\Windows\Temp\basapos-setup.log' }
+    Get-Content $logFile -ErrorAction SilentlyContinue | Select-Object -Last 40
+    throw "uninstall exited $($p.ExitCode)"
 }
 Start-Sleep -Seconds 5
 if ((wsl --list --quiet | Out-String) -match 'BasaPOS') { throw 'distro still registered' }

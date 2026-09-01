@@ -22,7 +22,7 @@ public sealed class InstallOrchestrator(ISetupUi ui)
 
         var tar = PartStitcher.StitchAndVerify(payload, ui.Progress);   // 3
 
-        ui.Status("Importing distro…");                                 // 4
+        ui.Status("Importing distro...");                                 // 4
         Directory.CreateDirectory(Paths.DistroDir);
         var imp = WslRunner.Wsl($"--import {Paths.DistroName} \"{Paths.DistroDir}\" \"{tar}\" --version 2",
             1800, l => ui.Status("  " + l));
@@ -31,7 +31,7 @@ public sealed class InstallOrchestrator(ISetupUi ui)
                 $"wsl --import failed (exit {imp.ExitCode}).\n{imp.Output}\n{imp.Error}");
         File.Delete(tar);
 
-        ui.Status("Writing credentials…");                              // 5
+        ui.Status("Writing credentials...");                              // 5
         var pw = Credentials.Generate(16, Random.Shared);
         Directory.CreateDirectory(Paths.ConfigDir);
         Directory.CreateDirectory(Paths.LogsDir);
@@ -39,23 +39,23 @@ public sealed class InstallOrchestrator(ISetupUi ui)
         Credentials.WriteInstallPassword(pw);
         File.WriteAllText(Path.Combine(Paths.ConfigDir, "settings.txt"), "LAN_MODE=false\n");
 
-        ui.Status("Configuring WSL memory + hosts…");                   // 6
+        ui.Status("Configuring WSL memory + hosts...");                   // 6
         var ramGiB = MemoryGB();
         WslConfig.Write(Math.Clamp(ramGiB / 2, 4, 8) * 1024L * 1024 * 1024);
         HostsFile.Ensure();
 
-        ui.Status("Registering autostart…");                            // 7
+        ui.Status("Registering autostart...");                            // 7
         BootWrapper.Write();
         TaskRegistrar.Register();
 
-        ui.Status("First boot: loading images + creating site (5-15 min)…"); // 8
+        ui.Status("First boot: loading images + creating site (5-15 min)..."); // 8
         var boot = WslRunner.Wsl($"-d {Paths.DistroName} --exec /bin/true", 300);
         if (boot.ExitCode != 0)
             throw new InvalidOperationException(
                 $"Could not start the BasaPOS distro (exit {boot.ExitCode}).\n{boot.Output}\n{boot.Error}");
         var ok = HealthPoller.WaitHealthy(s => ui.Status("  " + s)).GetAwaiter().GetResult();
 
-        ui.Status("Trusting certificate…");                             // 9
+        ui.Status("Trusting certificate...");                             // 9
         var cert = Path.Combine(Paths.ConfigDir, "basapos.crt");
         if (File.Exists(cert)) CertTrust.Trust(cert);
 

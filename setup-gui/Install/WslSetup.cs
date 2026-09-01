@@ -4,7 +4,7 @@ public static class WslSetup
 {
     public static void Ensure(Action<string> status, string payloadDir)
     {
-        status("Checking WSL…");
+        status("Checking WSL...");
         try
         {
             var probe = WslRunner.Wsl("--status", 30);
@@ -16,7 +16,7 @@ public static class WslSetup
             // wsl.exe missing or hung → full install path below
         }
 
-        status("Enabling VirtualMachinePlatform + WSL features…");
+        status("Enabling VirtualMachinePlatform + WSL features...");
         var r = WslRunner.RunAnsi("dism.exe",
             "/online /enable-feature /featurename:VirtualMachinePlatform /all /norestart", 600);
         if (r.ExitCode != 0 && r.ExitCode != 3010)
@@ -29,7 +29,7 @@ public static class WslSetup
         var msi = Path.Combine(payloadDir, "wsl.msi");
         if (!File.Exists(msi))
             throw new InvalidOperationException($"wsl.msi missing in payload: {msi}");
-        status("Installing pinned WSL 2.7.11…");
+        status("Installing pinned WSL 2.7.11...");
         var r3 = WslRunner.RunAnsi("msiexec.exe", $"/i \"{msi}\" /qn /norestart", 900);
         if (r3.ExitCode != 0 && r3.ExitCode != 3010)
             throw new InvalidOperationException($"WSL MSI install failed ({r3.ExitCode})");

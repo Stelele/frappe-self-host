@@ -30,7 +30,7 @@ public sealed class MainForm : Form, ISetupUi
         {
             if (Detect.IsInstalled())
             {
-                Status("Reinstall: uninstalling current installation…");
+                Status("Reinstall: uninstalling current installation...");
                 new Uninstaller(this).Run(keepBackups: true);
             }
             new InstallOrchestrator(this).RunAll();

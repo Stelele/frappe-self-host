@@ -6,7 +6,7 @@ public static class Prereqs
 {
     public static void AssertAll(Action<string> status, string payloadDir)
     {
-        status("Checking prerequisites…");
+        status("Checking prerequisites...");
         var os = Environment.OSVersion;
         if (os.Version.Major < 10 || (os.Version.Major == 10 && os.Version.Build < 19044))
             throw new InvalidOperationException(

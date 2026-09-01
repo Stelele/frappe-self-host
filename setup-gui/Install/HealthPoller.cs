@@ -57,7 +57,7 @@ public static class HealthPoller
                 }
                 catch { /* distro busy — keep polling */ }
             }
-            status($"Waiting for site… (poll {attempt})");
+            status($"Waiting for site... (poll {attempt})");
             await Task.Delay(TimeSpan.FromSeconds(10));
         }
         return false;
