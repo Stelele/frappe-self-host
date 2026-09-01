@@ -36,6 +36,12 @@ echo "parity:   $A"
 echo "shipped:  $B"
 [ "$A" = "$B" ] || { echo "VALIDATE FAIL: compose drift (parity != shipped)"; exit 1; }
 
+echo "== certs bind-path guard (anchored — catches rewrite failures) =="
+X /opt/basapos/compose/compose.final.yaml | grep -q 'source: /opt/basapos/certs' \
+  || { echo "VALIDATE FAIL: certs bind source not exactly /opt/basapos/certs (rewrite broken?)"; exit 1; }
+X /opt/basapos/compose/compose.final.yaml | grep -q '\.stage' \
+  && { echo "VALIDATE FAIL: staging path leaked into shipped compose"; exit 1; } || true
+
 echo "== offline sanity: no external image pull needed =="
 C=$(X /opt/basapos/compose/compose.final.yaml | grep -c 'PULL_POLICY' || true)
 grep -q 'basapos' <(X /opt/basapos/compose/compose.final.yaml) \

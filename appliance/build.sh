@@ -11,7 +11,10 @@ OUT_DIR=appliance/dist
 PART_SIZE=1900m
 # stage on the artifact disk by default (/tmp may be a small tmpfs on CI);
 # override with BASAPOS_STAGE_DIR for exotic runners
-STAGE="${BASAPOS_STAGE_DIR:-$OUT_DIR.stage}"
+# MUST be absolute: gen-compose --rewrite strips this prefix from the
+# absolute bind paths docker compose config emits
+STAGE="${BASAPOS_STAGE_DIR:-$ROOT/$OUT_DIR.stage}"
+case "$STAGE" in /*) ;; *) STAGE="$PWD/$STAGE" ;; esac
 rm -rf "$STAGE"; mkdir -p "$STAGE"
 mkdir -p "$OUT_DIR"
 
