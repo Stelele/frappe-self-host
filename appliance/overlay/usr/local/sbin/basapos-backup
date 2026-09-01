@@ -31,5 +31,5 @@ fi
 docker compose --env-file "$C/.env" -f "$C/compose.final.yaml" exec -T backend \
   rm -rf "/home/frappe/frappe-bench/backups/$TS" >>"$LOG" 2>&1 || true
 
-# retention: anchored to the exact backup-dir timestamp shape only
-ls -1dt "$DEST"/20[0-9][0-9][0-9][0-9][0-9][0-9][0-9]_* 2>/dev/null | tail -n +$((KEEP + 1)) | xargs -r rm -rf
+# retention: anchored to the exact backup-dir timestamp shape (YYYYMMDD_HHMMSS)
+ls -1dt "$DEST"/20[0-9][0-9][0-9][0-9][0-9][0-9]_* 2>/dev/null | tail -n +$((KEEP + 1)) | xargs -r rm -rf
