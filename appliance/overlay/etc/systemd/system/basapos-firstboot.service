@@ -5,6 +5,9 @@ Wants=network-online.target
 
 [Service]
 Type=oneshot
+# docker load + new-site + migrate can take 10-30 min on POS disks;
+# the 90s default would SIGKILL the run mid-phase
+TimeoutStartSec=infinity
 RemainAfterExit=yes
 ExecStart=/usr/local/sbin/basapos-firstboot
 StandardOutput=journal

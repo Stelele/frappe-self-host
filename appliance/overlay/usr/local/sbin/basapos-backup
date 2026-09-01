@@ -9,6 +9,9 @@ LOG=/var/log/basapos-backup.log
 
 log() { echo "$(date -Us) $*" >> "$LOG"; }
 
+exec 9>/var/lock/basapos-backup.lock
+flock -n 9 || { log "another backup already running — skip"; exit 0; }
+
 AVAIL_KB=$(df --output=avail /mnt/c 2>/dev/null | tail -1)
 [ "${AVAIL_KB:-0}" -lt 5242880 ] && { log "skip: <5GB free on /mnt/c"; exit 0; }
 
@@ -17,10 +20,16 @@ docker compose --env-file "$C/.env" -f "$C/compose.final.yaml" exec -T backend \
   bench --site basapos.local backup --with-files \
   --backup-path "/home/frappe/frappe-bench/backups/$TS" >>"$LOG" 2>&1 || { log "bench backup failed"; exit 1; }
 
-docker compose --env-file "$C/.env" -f "$C/compose.final.yaml" cp \
-  "backend:/home/frappe/frappe-bench/backups/$TS" "$DEST/$TS" >>"$LOG" 2>&1 \
-  && docker compose --env-file "$C/.env" -f "$C/compose.final.yaml" exec -T backend \
-      rm -rf "/home/frappe/frappe-bench/backups/$TS" >>"$LOG" 2>&1 || { log "copy-out failed"; exit 1; }
+if docker compose --env-file "$C/.env" -f "$C/compose.final.yaml" cp \
+  "backend:/home/frappe/frappe-bench/backups/$TS" "$DEST/$TS" >>"$LOG" 2>&1; then
+  log "backup ok: $DEST/$TS"
+else
+  log "copy-out failed for $TS"
+fi
+# always clean the in-container staging dir (even after copy failure) so the
+# sites volume never accumulates failed staging dirs
+docker compose --env-file "$C/.env" -f "$C/compose.final.yaml" exec -T backend \
+  rm -rf "/home/frappe/frappe-bench/backups/$TS" >>"$LOG" 2>&1 || true
 
-ls -1dt "$DEST"/20* 2>/dev/null | tail -n +$((KEEP + 1)) | xargs -r rm -rf
-log "backup ok: $DEST/$TS"
+# retention: anchored to the exact backup-dir timestamp shape only
+ls -1dt "$DEST"/20[0-9][0-9][0-9][0-9][0-9][0-9][0-9]_* 2>/dev/null | tail -n +$((KEEP + 1)) | xargs -r rm -rf

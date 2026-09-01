@@ -8,13 +8,19 @@ C=$B/compose
 STATE=/var/lib/basapos/firstboot
 CREDS=/mnt/c/BasaPOS/config
 LOG=/var/log/basapos-firstboot.log
+WINLOG=/mnt/c/BasaPOS/logs/firstboot.log
 
-log() { echo "$(date -Us) [$1] $2" | tee -a "$LOG" >&2; }
+log() {
+  local line; line="$(date -Us) [$1] $2"
+  echo "$line" | tee -a "$LOG" >&2
+  echo "$line" >> "$WINLOG" 2>/dev/null || true
+}
 done_phase() { [ -f "$STATE/$1" ]; }
 mark() { touch "$STATE/$1"; }
 dc() { docker compose --env-file "$C/.env" -f "$C/compose.final.yaml" "$@"; }
 
-mkdir -p "$STATE"
+mkdir -p "$STATE" /mnt/c/BasaPOS/logs
+: > "$WINLOG" 2>/dev/null || true
 
 ADMIN_PW=""
 [ -r "$CREDS/install-password.txt" ] && ADMIN_PW="$(tr -d '\r\n' < "$CREDS/install-password.txt")"
@@ -33,28 +39,43 @@ if ! done_phase env; then
   mark env
 fi
 
+# credentials.txt may hold a duplicate line if a previous run died between
+# append and mark — always consume the LATEST entry.
+DB_ROOT_PW="$(grep '^DB_ROOT_PASSWORD=' "$CREDS/credentials.txt" | cut -d= -f2 | tail -1)"
+[ -n "$DB_ROOT_PW" ] || { log fatal "DB_ROOT_PASSWORD unreadable in credentials.txt"; exit 1; }
+
+# compose service names per the generated chain: db (NOT mariadb-db),
+# redis-cache, redis-queue. configurator is a oneshot that writes
+# common_site_config.json; backend depends on its successful completion.
 if ! done_phase stack; then
-  log 3 "start db + cache tiers"
-  dc up -d mariadb-db redis-cache redis-queue >>"$LOG" 2>&1 \
-    && sleep 15 && mark stack || { log 3 "tier start failed"; exit 1; }
+  log 3 "start db + cache tiers + configurator"
+  dc up -d db redis-cache redis-queue >>"$LOG" 2>&1 \
+    && dc up configurator >>"$LOG" 2>&1 \
+    && mark stack || { log 3 "tier start failed"; exit 1; }
 fi
 
 if ! done_phase site; then
-  log 4 "new-site basapos.local"
-  APPS="$(dc run --rm --no-deps backend sh -c "cat sites/apps.txt | grep -v '^frappe$' | tr '\n' ' '" 2>>"$LOG")"
-  [ -n "$APPS" ] || { log 4 "apps.txt unreadable"; exit 1; }
-  FLAGS=""
-  for a in $APPS; do FLAGS="$FLAGS --install-app $a"; done
-  # shellcheck disable=SC2086
-  dc run --rm --no-deps backend bench new-site \
-    --mariadb-user-host-login-scope=% \
-    --db-root-password "$(grep '^DB_ROOT_PASSWORD=' "$CREDS/credentials.txt" | cut -d= -f2)" \
-    $FLAGS --admin-password "$ADMIN_PW" basapos.local >>"$LOG" 2>&1 \
-  && dc run --rm --no-deps backend bench --site basapos.local migrate >>"$LOG" 2>&1 \
-  && dc run --rm --no-deps backend bench --site basapos.local build >>"$LOG" 2>&1 \
-  && dc run --rm --no-deps -T backend tar -chf - -C /home/frappe/frappe-bench assets 2>>"$LOG" \
-     | dc run --rm --no-deps -T frontend sh -c 'tar -xf - -C /home/frappe/frappe-bench' >>"$LOG" 2>&1 \
-  && mark site || { log 4 "site creation failed"; exit 1; }
+  if dc run --rm --no-deps backend test -d sites/basapos.local; then
+    log 4 "site exists (partial previous run) — skip new-site, migrate only"
+  else
+    log 4 "new-site basapos.local"
+    APPS="$(dc run --rm --no-deps backend sh -c "cat sites/apps.txt | grep -v '^frappe$' | tr '\n' ' '" 2>>"$LOG")"
+    [ -n "$APPS" ] || { log 4 "apps.txt unreadable"; exit 1; }
+    FLAGS=""
+    for a in $APPS; do FLAGS="$FLAGS --install-app $a"; done
+    # shellcheck disable=SC2086
+    dc run --rm --no-deps backend bench new-site \
+      --mariadb-user-host-login-scope=% \
+      --db-root-password "$DB_ROOT_PW" \
+      $FLAGS --admin-password "$ADMIN_PW" basapos.local >>"$LOG" 2>&1 \
+      || { log 4 "new-site failed"; exit 1; }
+  fi
+  # NOTE: no runtime `bench build` / asset tar-pipe — assets are baked into
+  # the image layer at CI build (frappe_docker layered Containerfile); runtime
+  # builds in `run --rm` containers would be discarded with the container.
+  dc run --rm --no-deps backend bench --site basapos.local migrate >>"$LOG" 2>&1 \
+    || { log 4 "migrate failed"; exit 1; }
+  mark site
 fi
 
 if ! done_phase cert; then
@@ -62,13 +83,17 @@ if ! done_phase cert; then
   RAND="$(tr -dc a-z0-9 </dev/urandom | head -c 8)"
   openssl req -x509 -nodes -days 3650 -newkey rsa:2048 \
     -keyout "$B/certs/key.pem" -out "$B/certs/cert.pem" \
-    -subj "/CN=basapos-$RAND.local" -addext "subjectAltName=DNS:basapos.local" >>"$LOG" 2>&1
-  cp "$B/certs/cert.pem" "$CREDS/basapos.crt"
-  cat > "$B/certs/dynamic.yml" <<'EOF'
+    -subj "/CN=basapos-$RAND.local" -addext "subjectAltName=DNS:basapos.local" >>"$LOG" 2>&1 \
+    || { log 5 "cert generation failed"; exit 1; }
+  cp "$B/certs/cert.pem" "$CREDS/basapos.crt" \
+    || { log 5 "cert copy-out failed"; exit 1; }
+  # the proxy bind-mounts /opt/basapos/certs AT /certs — dynamic.yml must use
+  # the CONTAINER-side paths
+  cat > "$B/certs/dynamic.yml" <<'EOF' || { log 5 "dynamic.yml write failed"; exit 1; }
 tls:
   certificates:
-    - certFile: /opt/basapos/certs/cert.pem
-      keyFile: /opt/basapos/certs/key.pem
+    - certFile: /certs/cert.pem
+      keyFile: /certs/key.pem
 EOF
   mark cert
 fi
