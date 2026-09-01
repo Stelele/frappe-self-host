@@ -8,4 +8,5 @@ public interface ISetupUi
     void Progress(int pct);
     bool Healthy { get; set; }
     void ShowDone(string password);
+    void ShowReboot(string message);
 }

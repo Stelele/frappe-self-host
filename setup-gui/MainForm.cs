@@ -26,7 +26,15 @@ public sealed class MainForm : Form, ISetupUi
         _buttons.Controls.Add(_btnInstall);
         _buttons.Controls.Add(_btnUninstall);
         _buttons.Controls.Add(_btnOpen);
-        _btnInstall.Click += async (_, _) => await RunBusy(() => new InstallOrchestrator(this).RunAll());
+        _btnInstall.Click += async (_, _) => await RunBusy(() =>
+        {
+            if (Detect.IsInstalled())
+            {
+                Status("Reinstall: uninstalling current installation…");
+                new Uninstaller(this).Run(keepBackups: true);
+            }
+            new InstallOrchestrator(this).RunAll();
+        });
         _btnUninstall.Click += async (_, _) => await RunBusy(() => new Uninstaller(this).Run());
         _btnOpen.Click += (_, _) =>
             Process.Start(new ProcessStartInfo(Paths.SiteUrl) { UseShellExecute = true });
@@ -80,5 +88,12 @@ public sealed class MainForm : Form, ISetupUi
         MessageBox.Show(
             $"Administrator password: {password}\n\nSaved to {Paths.ConfigDir}\\credentials.txt",
             "BasaPOS installed", MessageBoxButtons.OK, MessageBoxIcon.Information);
+    }
+
+    public void ShowReboot(string message)
+    {
+        Status(message);
+        if (InvokeRequired) BeginInvoke(() => MessageBox.Show(message, "BasaPOS Setup — reboot needed"));
+        else MessageBox.Show(message, "BasaPOS Setup — reboot needed");
     }
 }
