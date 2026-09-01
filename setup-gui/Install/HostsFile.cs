@@ -8,7 +8,13 @@ public static class HostsFile
     public static bool HasEntry(string hostsContent) =>
         hostsContent.Split('\n', StringSplitOptions.RemoveEmptyEntries)
             .Select(l => l.Trim())
-            .Any(l => l.Equals(Entry, StringComparison.OrdinalIgnoreCase));
+            .Any(l =>
+            {
+                var tokens = l.Split((char[])null, StringSplitOptions.RemoveEmptyEntries);
+                return tokens.Length >= 2
+                    && tokens[0].Equals("127.0.0.1", StringComparison.OrdinalIgnoreCase)
+                    && tokens[1].Equals(Paths.Domain, StringComparison.OrdinalIgnoreCase);
+            });
 
     public static void Ensure()
     {
@@ -19,8 +25,10 @@ public static class HostsFile
 
     public static void Remove()
     {
-        var lines = File.ReadAllLines(HostsPath)
-            .Where(l => !l.Trim().Equals(Entry, StringComparison.OrdinalIgnoreCase));
-        File.WriteAllLines(HostsPath, lines);
+        var content = File.ReadAllText(HostsPath);
+        var kept = content.Split('\n')
+            .Where(l => !HasEntry(l))
+            .ToList();
+        File.WriteAllText(HostsPath, string.Join("\n", kept));
     }
 }

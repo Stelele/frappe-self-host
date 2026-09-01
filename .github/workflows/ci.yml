@@ -40,8 +40,10 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: "10.0.x"
-      - name: Build (logic-only tests need Windows runtime — build verifies compilation)
-        run: dotnet build setup-gui.tests/BasaPOS-Setup.tests.csproj -c Release
+      - name: Test logic components
+        run: dotnet test setup-gui.tests/BasaPOS-Setup.tests.csproj -c Release
+      - name: Build GUI (WinForms compile check)
+        run: dotnet build setup-gui/BasaPOS-Setup.csproj -c Release --nologo
 
   distro:
     needs: lint

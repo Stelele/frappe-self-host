@@ -17,7 +17,11 @@ public static class PartStitcher
         if (parts.Length == 0)
             throw new InvalidOperationException("no payload parts found");
 
-        var sums = ParseSums(Path.Combine(payloadDir, "SHA256SUMS"));
+        var sumsPath = Path.Combine(payloadDir, "SHA256SUMS");
+        if (!File.Exists(sumsPath))
+            throw new InvalidOperationException(
+                $"SHA256SUMS missing in payload ({sumsPath}) — re-copy the full payload folder.");
+        var sums = ParseSums(sumsPath);
         if (!sums.ContainsKey("basapos-distro.tar.gz"))
             throw new InvalidOperationException("SHA256SUMS missing entry for basapos-distro.tar.gz");
 

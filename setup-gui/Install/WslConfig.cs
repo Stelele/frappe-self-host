@@ -13,16 +13,15 @@ public static class WslConfig
     {
         var existing = File.Exists(WslConfigPath) ? File.ReadAllText(WslConfigPath) : "";
         var block = Render(memoryBytes);
-        if (existing.Contains(Begin))
-            existing = StripManagedBlock(existing);
-        File.WriteAllText(WslConfigPath, existing.TrimEnd() + "\n" + block);
+        var final = StripManagedBlock(existing).TrimEnd() + "\n" + block;
+        WriteAtomic(WslConfigPath, final);
     }
 
     public static void RemoveManagedBlock()
     {
         if (!File.Exists(WslConfigPath)) return;
         var existing = File.ReadAllText(WslConfigPath);
-        var cleaned = StripManagedBlock(existing);
+        var cleaned = StripOrphanFragment(StripManagedBlock(existing));
         if (cleaned.Trim().Length == 0) File.Delete(WslConfigPath);
         else File.WriteAllText(WslConfigPath, cleaned);
     }
@@ -31,6 +30,19 @@ public static class WslConfig
         System.Text.RegularExpressions.Regex.Replace(
             content, Escape(Begin) + @".*?--- end BasaPOS ---\r?\n?", "",
             System.Text.RegularExpressions.RegexOptions.Singleline);
+
+    internal static string StripOrphanFragment(string content) =>
+        System.Text.RegularExpressions.Regex.Replace(
+            content, Escape(Begin) + @"(?s:.*)$", "",
+            System.Text.RegularExpressions.RegexOptions.None);
+
+    static void WriteAtomic(string path, string content)
+    {
+        var tmp = path + ".basapos.tmp";
+        File.WriteAllText(tmp, content);
+        if (File.Exists(path)) File.Replace(tmp, path, null);
+        else File.Move(tmp, path);
+    }
 
     static string Escape(string s) =>
         System.Text.RegularExpressions.Regex.Escape(s);

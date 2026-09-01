@@ -25,10 +25,20 @@ public static class Prereqs
                 $"Payload not found.\nExpected: {payloadDir}\\basapos-distro.tar.part-*\n" +
                 "Copy the full USB payload folder next to BasaPOS-Setup.exe and re-run.");
 
-        using var searcher = new ManagementObjectSearcher(
-            "SELECT HypervisorPresent FROM Win32_ComputerSystem");
-        foreach (var o in searcher.Get())
-            if ((bool)o["HypervisorPresent"]) { status("Virtualization: OK"); return; }
+        // HypervisorPresent: a hypervisor is already running (Hyper-V/VBS).
+        // VirtualizationFirmwareEnabled: VT-x/AMD-V on in BIOS (reads FALSE
+        // under a running hypervisor) — hence the OR. Clean Win10 boxes with
+        // VT enabled but no Hyper-V report only the latter.
+        bool running = false, firmware = false;
+        using (var searcher = new ManagementObjectSearcher(
+            "SELECT HypervisorPresent FROM Win32_ComputerSystem"))
+            foreach (var o in searcher.Get())
+                running = (bool)o["HypervisorPresent"];
+        using (var searcher = new ManagementObjectSearcher(
+            "SELECT VirtualizationFirmwareEnabled FROM Win32_Processor"))
+            foreach (var o in searcher.Get())
+                if ((bool)o["VirtualizationFirmwareEnabled"]) firmware = true;
+        if (running || firmware) { status("Virtualization: OK"); return; }
         throw new InvalidOperationException(
             "Hardware virtualization is disabled. Enable VT-x/AMD-V in BIOS, then re-run.");
     }

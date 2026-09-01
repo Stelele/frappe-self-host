@@ -26,11 +26,14 @@ public static class Credentials
 
     public static void RestrictToAdmins(string file)
     {
+        // SIDs, not names: builtin group names are localized on non-English Windows
+        var admins = new SecurityIdentifier(WellKnownSidType.BuiltinAdministratorsSid, null);
         var sec = new FileSecurity();
-        sec.SetOwner(new NTAccount("Administrators"));
-        sec.AddAccessRule(new FileSystemAccessRule(new NTAccount("Administrators"),
+        sec.SetOwner(admins);
+        sec.AddAccessRule(new FileSystemAccessRule(admins,
             FileSystemRights.FullControl, AccessControlType.Allow));
-        sec.AddAccessRule(new FileSystemAccessRule(WindowsIdentity.GetCurrent().Name,
+        sec.AddAccessRule(new FileSystemAccessRule(
+            WindowsIdentity.GetCurrent().User!,
             FileSystemRights.ReadAndExecute, AccessControlType.Allow));
         new FileInfo(file).SetAccessControl(sec);
     }

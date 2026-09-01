@@ -5,8 +5,16 @@ public static class WslSetup
     public static void Ensure(Action<string> status, string payloadDir)
     {
         status("Checking WSL…");
-        try { WslRunner.Wsl("--status", 30); status("WSL: present"); return; }
-        catch (Exception) { /* not installed or timed out → install below */ }
+        try
+        {
+            var probe = WslRunner.Wsl("--status", 30);
+            if (probe.ExitCode == 0) { status("WSL: present"); return; }
+            status($"WSL present but unhealthy (exit {probe.ExitCode}) — repairing");
+        }
+        catch (Exception)
+        {
+            // wsl.exe missing or hung → full install path below
+        }
 
         status("Enabling VirtualMachinePlatform + WSL features…");
         var r = WslRunner.RunAnsi("dism.exe",

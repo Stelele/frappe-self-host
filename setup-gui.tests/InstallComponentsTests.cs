@@ -56,6 +56,7 @@ public class InstallComponentsTests
     {
         Assert.True(HostsFile.HasEntry("127.0.0.1 basapos.local"));
         Assert.True(HostsFile.HasEntry("  127.0.0.1 BASAPOS.LOCAL  "));
+        Assert.True(HostsFile.HasEntry("127.0.0.1  basapos.local  # double space + comment"));
         Assert.False(HostsFile.HasEntry("10.0.0.5 basapos.local"));
         Assert.False(HostsFile.HasEntry(""));
     }
@@ -74,6 +75,26 @@ public class InstallComponentsTests
 
         var onlyOurs = WslConfig.StripManagedBlock(s);
         Assert.Equal("", onlyOurs.Trim()); // pure-managed file → empty → caller deletes
+    }
+
+    [Fact]
+    public void WslConfig_strips_orphan_fragment_without_eating_foreign_config()
+    {
+        var orphan = "# other\n[experimental]\nkey=val\n# --- BasaPOS (managed) ---\n[wsl2]\nmemory=6G"; // no end marker
+        var stripped = WslConfig.StripOrphanFragment(orphan);
+        Assert.Contains("key=val", stripped);
+        Assert.DoesNotContain("BasaPOS (managed)", stripped);
+    }
+
+    [Fact]
+    public void StitchAndVerify_missing_sums_is_actionable()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "ns-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        File.WriteAllText(Path.Combine(dir, "basapos-distro.tar.part-00"), "x");
+        var ex = Assert.Throws<InvalidOperationException>(() => PartStitcher.StitchAndVerify(dir, _ => { }));
+        Assert.Contains("re-copy", ex.Message);
+        Directory.Delete(dir, recursive: true);
     }
 
     [Fact]
