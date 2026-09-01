@@ -23,3 +23,9 @@ appliance/.payload/
 
 # Installer assembly inputs/outputs
 package.zip
+
+# .NET build artifacts
+setup-gui/bin/
+setup-gui/obj/
+setup-gui.tests/bin/
+setup-gui.tests/obj/

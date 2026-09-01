@@ -31,6 +31,18 @@ jobs:
           done
           exit $fail
 
+  gui:
+    needs: lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+      - name: Build (logic-only tests need Windows runtime — build verifies compilation)
+        run: dotnet build setup-gui.tests/BasaPOS-Setup.tests.csproj -c Release
+
   distro:
     needs: lint
     runs-on: ubuntu-latest
