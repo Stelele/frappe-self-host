@@ -20,7 +20,7 @@ mark() { touch "$STATE/$1"; }
 dc() { docker compose --env-file "$C/.env" -f "$C/compose.final.yaml" "$@"; }
 
 mkdir -p "$STATE" /mnt/c/BasaPOS/logs
-: > "$WINLOG" 2>/dev/null || true
+touch "$WINLOG" 2>/dev/null || true
 
 ADMIN_PW=""
 [ -r "$CREDS/install-password.txt" ] && ADMIN_PW="$(tr -d '\r\n' < "$CREDS/install-password.txt")"
@@ -45,12 +45,13 @@ DB_ROOT_PW="$(grep '^DB_ROOT_PASSWORD=' "$CREDS/credentials.txt" | cut -d= -f2 |
 [ -n "$DB_ROOT_PW" ] || { log fatal "DB_ROOT_PASSWORD unreadable in credentials.txt"; exit 1; }
 
 # compose service names per the generated chain: db (NOT mariadb-db),
-# redis-cache, redis-queue. configurator is a oneshot that writes
-# common_site_config.json; backend depends on its successful completion.
+# redis-cache, redis-queue. `run --rm configurator` propagates the oneshot's
+# exit code (attached `up` swallows it: empirically returns 0 on failure) and
+# ignores the restart policy.
 if ! done_phase stack; then
   log 3 "start db + cache tiers + configurator"
   dc up -d db redis-cache redis-queue >>"$LOG" 2>&1 \
-    && dc up configurator >>"$LOG" 2>&1 \
+    && dc run --rm configurator >>"$LOG" 2>&1 \
     && mark stack || { log 3 "tier start failed"; exit 1; }
 fi
 
