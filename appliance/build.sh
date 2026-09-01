@@ -9,8 +9,10 @@ IMAGE_TAG=basapos:16
 DISTRO_TAG=basapos-distro:16
 OUT_DIR=appliance/dist
 PART_SIZE=1900m
-STAGE="$(mktemp -d)"
-trap 'rm -rf "$STAGE"; rm -rf "$ROOT/appliance/.payload"' EXIT
+# stage on the artifact disk by default (/tmp may be a small tmpfs on CI);
+# override with BASAPOS_STAGE_DIR for exotic runners
+STAGE="${BASAPOS_STAGE_DIR:-$OUT_DIR.stage}"
+rm -rf "$STAGE"; mkdir -p "$STAGE"
 mkdir -p "$OUT_DIR"
 
 echo "== 1/6 build frappe image (ONE build — parity by construction) =="
@@ -35,10 +37,14 @@ echo "== 3/6 generate compose bundle (same scripts as Linux) =="
 mkdir -p "$STAGE/opt/basapos/compose" "$STAGE/opt/basapos/certs"
 ENV_HAD_ONE=0
 [ -f .env ] && { cp .env "$STAGE/user-env.bak"; ENV_HAD_ONE=1; }
+restore_env() {
+  if [ "$ENV_HAD_ONE" = 1 ]; then mv -f "$STAGE/user-env.bak" .env
+  else rm -f .env; fi
+}
+trap 'restore_env; rm -rf "$STAGE"; rm -rf "$ROOT/appliance/.payload"' EXIT
 sed -e 's|^DB_PASSWORD=.*|DB_PASSWORD=__GENERATED_AT_FIRSTBOOT__|' \
     -e 's|^ADMIN_PASSWORD=.*|ADMIN_PASSWORD=install-time|' .env.example > .env
 bash scripts/gen-compose.sh "$STAGE/opt/basapos/compose" --rewrite "$STAGE=" >/dev/null
-[ "$ENV_HAD_ONE" = 1 ] && mv "$STAGE/user-env.bak" .env || rm -f .env
 cp "$STAGE/opt/basapos/compose/compose.final.yaml" "$STAGE/compose-parity.yaml"
 
 echo "== 4/6 build distro image (payload staged into context) =="

@@ -18,6 +18,7 @@ certs/
 
 # Appliance build artifacts
 appliance/dist/
+appliance/dist.stage/
 appliance/.payload/
 
 # Installer assembly inputs/outputs
