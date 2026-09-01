@@ -13,47 +13,65 @@ printf 'InstallPassword123!\n' > "$CREDS/config/install-password.txt"
 : > "$CREDS/config/credentials.txt"
 
 wait_sentinel() {  # $1=cid $2=sentinel $3=max-seconds
-  for _ in $(seq 1 $(( $3 / 5 ))); do
+  local deadline=$(( $(date +%s) + $3 ))
+  while [ "$(date +%s)" -lt "$deadline" ]; do
     docker exec "$1" test -f "/var/lib/basapos/firstboot/$2" 2>/dev/null && return 0
+    if [ "$(docker inspect -f '{{.State.Running}}' "$1" 2>/dev/null)" != "true" ]; then
+      echo "FAIL: container died while waiting for sentinel $2"
+      return 1
+    fi
     sleep 5
   done
   return 1
 }
 
-wait_done() {  # $1=cid — wait for completion + healthy ping
-  wait_sentinel "$1" done 2400 || { echo "FAIL: never converged after kill at $KILLED_AT"; docker exec "$1" tail -50 /var/log/basapos-firstboot.log 2>/dev/null || true; return 1; }
+wait_done() {  # $1=cid — done sentinel AND a real 200 from the site
+  wait_sentinel "$1" done 2400 || {
+    echo "FAIL: never converged after power-cut at $KILLED_AT"
+    docker exec "$1" tail -50 /var/log/basapos-firstboot.log 2>/dev/null || true
+    return 1; }
+  local code=""
   for _ in $(seq 1 60); do
-    docker exec "$1" curl -sk -o /dev/null https://localhost/api/method/ping 2>/dev/null && return 0
+    code="$(docker exec "$1" curl -sk -o /dev/null -w '%{http_code}' \
+      --resolve basapos.local:443:127.0.0.1 \
+      https://basapos.local/api/method/ping 2>/dev/null || true)"
+    [ "$code" = "200" ] && return 0
     sleep 5
   done
-  echo "FAIL: done sentinel set but site unhealthy (kill at $KILLED_AT)"
+  echo "FAIL: done sentinel set but site unhealthy (last http code='$code', power-cut at $KILLED_AT)"
   docker exec "$1" docker ps --format '{{.Names}} {{.Status}}' 2>/dev/null || true
   return 1
 }
 
 KILLED_AT=""
-for P in "${PHASES[@]}"; do
-  echo "=== drill: kill after sentinel: $P ==="
+ITERATIONS=("(boot)" loaded env stack site cert booted done)
+for P in "${ITERATIONS[@]}"; do
+  echo "=== drill: power-cut during/after: $P ==="
+  T0=$(date +%s)
   CID=$(docker run -d --privileged -v "$CREDS:/mnt/c/BasaPOS" "$IMG" /sbin/init)
   cleanup() { docker rm -f "$CID" >/dev/null 2>&1 || true; }
   trap cleanup EXIT
 
-  # wait for docker.service to settle, then for the phase sentinel.
-  # firstboot phases can take a while (docker load of ~5GB inside the VM).
-  wait_sentinel "$CID" "$P" 2700 \
-    || { echo "FAIL: sentinel $P never appeared"; docker exec "$CID" systemctl status basapos-firstboot.service --no-pager 2>&1 | tail -20 || true; exit 1; }
-
-  echo "  sentinel $P up — SIGKILL firstboot (power-cut simulation)"
-  docker exec "$CID" systemctl kill -s SIGKILL basapos-firstboot.service 2>/dev/null || true
-  docker exec "$CID" systemctl stop basapos-firstboot.service 2>/dev/null || true
-  sleep 3
+  if [ "$P" = "(boot)" ]; then
+    # kill mid docker-load (the longest, most fragile phase) before ANY sentinel
+    DELAY=$(( RANDOM % 120 + 30 ))
+  else
+    wait_sentinel "$CID" "$P" 2700 || {
+      echo "FAIL: sentinel $P never appeared"
+      docker exec "$CID" systemctl status basapos-firstboot.service --no-pager 2>&1 | tail -20 || true
+      exit 1; }
+    # land mid-flight in the NEXT phase, not at the clean boundary
+    DELAY=$(( RANDOM % 150 + 30 ))
+  fi
+  echo "  killing container in ${DELAY}s (power-cut simulation)"
   KILLED_AT="$P"
+  sleep "$DELAY"
+  docker restart -t 0 "$CID" >/dev/null
 
-  echo "  restarting service — must converge"
-  docker exec "$CID" systemctl start basapos-firstboot.service
+  # container rebooted: systemd auto-starts basapos-firstboot.service again;
+  # sentinels skip completed phases — convergence must reach done + HTTP 200
   wait_done "$CID"
-
-  echo "OK: converged after kill at $P"
+  echo "OK: converged after power-cut at $P ($(($(date +%s) - T0))s)"
   cleanup
   trap - EXIT
 done

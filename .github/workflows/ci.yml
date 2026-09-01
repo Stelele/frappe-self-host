@@ -9,6 +9,11 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  # keyed by event so a manual dispatch can't cancel an in-flight push pipeline
+  group: ci-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   lint:
     runs-on: ubuntu-latest
@@ -49,9 +54,13 @@ jobs:
   firstboot-drill:
     needs: distro
     runs-on: ubuntu-latest
-    timeout-minutes: 300
+    timeout-minutes: 420
     steps:
       - uses: actions/checkout@v4
+      - name: Free disk + report
+        run: |
+          docker system prune -af >/dev/null 2>&1 || true
+          df -h /
       - uses: actions/download-artifact@v4
         with:
           name: basapos-distro
@@ -63,5 +72,6 @@ jobs:
           cd ..
           cat artifact/basapos-distro.tar.part-* > basapos-distro.tar.gz
           docker import basapos-distro.tar.gz basapos-distro:drill
+          rm -f basapos-distro.tar.gz
       - name: Kill-at-every-phase drill
         run: bash appliance/test-firstboot.sh basapos-distro:drill

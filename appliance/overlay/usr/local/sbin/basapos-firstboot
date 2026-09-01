@@ -33,7 +33,16 @@ fi
 
 if ! done_phase env; then
   log 2 "generate DB password + .env"
-  DBPW="$(tr -dc A-Za-z0-9 </dev/urandom | head -c 24)"
+  # persist the pw in $STATE: a kill between the compose sed and mark env
+  # must NOT regenerate a different pw on re-run (placeholder already
+  # consumed → permanent mismatch wedge)
+  if [ -s "$STATE/db-password" ]; then
+    DBPW="$(cat "$STATE/db-password")"
+  else
+    DBPW="$(tr -dc A-Za-z0-9 </dev/urandom | head -c 24)"
+    printf '%s' "$DBPW" > "$STATE/db-password"
+    chmod 0600 "$STATE/db-password"
+  fi
   sed "s|__GENERATED_AT_FIRSTBOOT__|$DBPW|" "$C/.env.template" > "$C/.env"
   # compose.final.yaml was resolved by `docker compose config` at build time —
   # the DB_PASSWORD placeholder is baked as a literal and must be replaced

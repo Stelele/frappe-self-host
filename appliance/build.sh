@@ -81,4 +81,8 @@ split -b "$PART_SIZE" -d basapos-distro.tar.gz.tmp basapos-distro.tar.part-
 sha256sum basapos-distro.tar.gz.tmp basapos-distro.tar.part-* \
   | sed 's|basapos-distro\.tar\.gz\.tmp|basapos-distro.tar.gz|' > SHA256SUMS
 mv basapos-distro.tar.gz.tmp basapos-distro.tar.gz
+# the full tarball doubles the artifact size (~2x, 10GB upload cap risk) and
+# nothing downstream consumes it (GUI stitches parts; drill uses parts;
+# SHA256SUMS retains its hash for stitch verification)
+rm -f basapos-distro.tar.gz
 ls -lh
