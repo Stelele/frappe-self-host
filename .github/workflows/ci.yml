@@ -78,28 +78,30 @@ jobs:
 
   firstboot-drill:
     needs: distro
-    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request'
+    runs-on: windows-latest
     timeout-minutes: 420
     steps:
       - uses: actions/checkout@v4
-      - name: Free disk + report
-        run: |
-          docker system prune -af >/dev/null 2>&1 || true
-          df -h /
       - uses: actions/download-artifact@v4
         with:
           name: basapos-distro
-          path: artifact
-      - name: Reconstruct distro image from parts
-        run: |
-          cd artifact
-          grep 'basapos-distro.tar.part-' SHA256SUMS | sha256sum -c -
-          cd ..
-          cat artifact/basapos-distro.tar.part-* > basapos-distro.tar.gz
-          docker import basapos-distro.tar.gz basapos-distro:drill
-          rm -f basapos-distro.tar.gz
-      - name: Kill-at-every-phase drill
-        run: bash appliance/test-firstboot.sh basapos-distro:drill
+          path: parts
+      - name: Stitch + verify distro tarball
+        shell: pwsh
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File setup-gui/e2e/stitch-parts.ps1 -PartsDir parts -OutFile distro.tar.gz
+      - name: Kill-at-every-phase convergence drill (real WSL2)
+        shell: pwsh
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File setup-gui/e2e/drill-firstboot.ps1 -DistroTar distro.tar.gz
+      - name: Drill logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: firstboot-drill-logs
+          path: |
+            C:/BasaPOS/logs/**
+            C:/BasaPOS/backups/**
+          if-no-files-found: ignore
 
   payload:
     needs: [distro, gui]
