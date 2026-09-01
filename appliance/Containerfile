@@ -15,6 +15,12 @@ RUN mkdir -p /opt/basapos/compose /opt/basapos/certs /var/lib/basapos/firstboot
 COPY appliance/compose/.env.template /opt/basapos/compose/.env.template
 COPY appliance/overlay/ /
 
+# ---- payload (staged by build.sh into appliance/.payload/) -----------------
+COPY appliance/.payload/opt/basapos/images.tar /opt/basapos/images.tar
+COPY appliance/.payload/opt/basapos/compose/ /opt/basapos/compose/
+COPY appliance/.payload/opt/basapos/image-digest.txt /opt/basapos/image-digest.txt
+COPY appliance/.payload/compose-parity.yaml /opt/basapos/compose-parity.yaml
+
 # ---- systemd wiring ---------------------------------------------------------
 RUN chmod 0755 /usr/local/sbin/basapos-firstboot /usr/local/sbin/basapos-backup \
     && mkdir -p /etc/systemd/system/multi-user.target.wants \

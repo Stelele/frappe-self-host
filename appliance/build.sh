@@ -1,51 +1,66 @@
 #!/usr/bin/env bash
-# Build → smoke → export → validate the BasaPOS WSL appliance rootfs.
-# Usage: bash appliance/build.sh            (run from anywhere; self-locates repo root)
+# v3 pipeline: ONE image build → save 4 stack images → distro build →
+# export → gzip → split → SHA256SUMS. Disk-budgeted for CI runners.
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
-IMAGE=basapos-appliance:16
-OUT=appliance/dist/basapos-rootfs.tar.gz
 
-echo "== build image =="
-docker build -f appliance/Containerfile -t "$IMAGE" .
+IMAGE_TAG=basapos:16
+DISTRO_TAG=basapos-distro:16
+OUT_DIR=appliance/dist
+PART_SIZE=1900m
+STAGE="$(mktemp -d)"
+trap 'rm -rf "$STAGE"; rm -rf "$ROOT/appliance/.payload"' EXIT
+mkdir -p "$OUT_DIR"
 
-echo "== in-image smoke =="
-# NOTE: /etc/hosts|hostname|resolv.conf are docker-shadowed at runtime — do NOT
-# assert them here; validate.sh checks them at tar level instead.
-smoke_out="$(docker run --rm "$IMAGE" bash -c '
-  test -x /home/frappe/bench/env/bin/gunicorn || { echo "FAIL: gunicorn binary missing"; exit 1; }
-  test -L /etc/systemd/system/multi-user.target.wants/basapos-gunicorn.service || { echo "FAIL: gunicorn want-link"; exit 1; }
-  test -e /lib/systemd/systemd || { echo "FAIL: systemd init binary missing"; exit 1; }
-  [[ ! -s /etc/nginx/ssl/basapos.crt ]] || { echo "FAIL: TLS cert baked into image"; exit 1; }
-  [[ $(wc -c </etc/machine-id) -eq 0 ]] || { echo "FAIL: machine-id not blank"; exit 1; }
-  test ! -e /opt/provision.sh || { echo "FAIL: provision traces present"; exit 1; }
-  echo SMOKE_OK')" || { echo "$smoke_out" >&2; echo "FAIL: smoke failed" >&2; exit 1; }
-grep -q '^SMOKE_OK$' <<<"$smoke_out"
+echo "== 1/6 build frappe image (ONE build — parity by construction) =="
+CACHE_BUST="$(sha256sum apps.json | cut -d' ' -f1)"
+docker build \
+  --build-arg=FRAPPE_PATH=https://github.com/frappe/frappe \
+  --build-arg=FRAPPE_BRANCH=version-16 \
+  --build-arg=CACHE_BUST="$CACHE_BUST" \
+  --secret=id=apps_json,src=apps.json \
+  --tag="$IMAGE_TAG" \
+  --file=frappe_docker/images/layered/Containerfile frappe_docker
 
-echo "== stamp shadowed files into container =="
-CID=$(docker create "$IMAGE")
-STAMP="$(mktemp -d)"
-trap 'docker rm "$CID" >/dev/null 2>&1 || true; rm -rf "$STAMP"' EXIT
-cp appliance/overlay/etc/hosts "$STAMP/hosts"
-printf 'basapos\n' > "$STAMP/hostname"
-printf 'nameserver 1.1.1.1\nnameserver 8.8.8.8\n' > "$STAMP/resolv.conf"
-docker cp "$STAMP/hosts"      "$CID:/etc/hosts"
-docker cp "$STAMP/hostname"   "$CID:/etc/hostname"
-docker cp "$STAMP/resolv.conf" "$CID:/etc/resolv.conf"
-rm -rf "$STAMP"
+echo "== 2/6 save images.tar (4 pinned stack images) =="
+docker pull -q mariadb:11.8
+docker pull -q redis:8.6-alpine
+docker pull -q traefik:v3.6
+docker save "$IMAGE_TAG" mariadb:11.8 redis:8.6-alpine traefik:v3.6 \
+  -o "$STAGE/images.tar"
+docker image inspect "$IMAGE_TAG" --format '{{.Id}}' > "$STAGE/image-digest.txt"
 
-echo "== export rootfs =="
-mkdir -p "$(dirname "$OUT")"
-# export to a temp name and only move into place after validation passes,
-# so dist/ never holds a rejected or truncated artifact
-# gzip -9 (not -1): the rootfs is embedded raw (nocompression) in the
-# installer, and the Setup.exe must stay under GitHub's 2 GiB release-asset
-# limit. -9 is ~2-3x slower but yields a smaller tarball with headroom.
-docker export "$CID" | gzip -9 > "$OUT.tmp"
+echo "== 3/6 generate compose bundle (same scripts as Linux) =="
+mkdir -p "$STAGE/opt/basapos/compose" "$STAGE/opt/basapos/certs"
+ENV_HAD_ONE=0
+[ -f .env ] && { cp .env "$STAGE/user-env.bak"; ENV_HAD_ONE=1; }
+sed -e 's|^DB_PASSWORD=.*|DB_PASSWORD=__GENERATED_AT_FIRSTBOOT__|' \
+    -e 's|^ADMIN_PASSWORD=.*|ADMIN_PASSWORD=install-time|' .env.example > .env
+bash scripts/gen-compose.sh "$STAGE/opt/basapos/compose" --rewrite "$STAGE=" >/dev/null
+[ "$ENV_HAD_ONE" = 1 ] && mv "$STAGE/user-env.bak" .env || rm -f .env
+cp "$STAGE/opt/basapos/compose/compose.final.yaml" "$STAGE/compose-parity.yaml"
 
-echo "== validate =="
-bash appliance/validate.sh "$OUT.tmp"
-mv "$OUT.tmp" "$OUT"
+echo "== 4/6 build distro image (payload staged into context) =="
+mkdir -p appliance/.payload/opt/basapos
+cp "$STAGE/images.tar" appliance/.payload/opt/basapos/images.tar
+cp -r "$STAGE/opt/basapos/compose" appliance/.payload/opt/basapos/compose
+cp "$STAGE/image-digest.txt" appliance/.payload/opt/basapos/image-digest.txt
+cp "$STAGE/compose-parity.yaml" appliance/.payload/compose-parity.yaml
+docker build -f appliance/Containerfile -t "$DISTRO_TAG" .
+rm -rf appliance/.payload
+docker builder prune -f >/dev/null 2>&1 || true
 
-ls -lh "$OUT"
+echo "== 5/6 export + gzip =="
+CID=$(docker create "$DISTRO_TAG")
+docker export "$CID" | gzip -6 > "$OUT_DIR/basapos-distro.tar.gz.tmp"
+docker rm "$CID" >/dev/null
+
+echo "== 6/6 validate → split → checksums =="
+bash appliance/validate.sh "$OUT_DIR/basapos-distro.tar.gz.tmp"
+mv "$OUT_DIR/basapos-distro.tar.gz.tmp" "$OUT_DIR/basapos-distro.tar.gz"
+cd "$OUT_DIR"
+rm -f basapos-distro.tar.part-* SHA256SUMS
+split -b "$PART_SIZE" -d basapos-distro.tar.gz basapos-distro.tar.part-
+sha256sum basapos-distro.tar.gz basapos-distro.tar.part-* > SHA256SUMS
+ls -lh

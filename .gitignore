@@ -18,6 +18,7 @@ certs/
 
 # Appliance build artifacts
 appliance/dist/
+appliance/.payload/
 
 # Installer assembly inputs/outputs
 package.zip
