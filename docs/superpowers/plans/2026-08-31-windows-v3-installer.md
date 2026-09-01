@@ -455,6 +455,20 @@ WantedBy=timers.target
 
 - [ ] **Step 6: Verify + commit**
 
+> **AMENDMENT (post-review, applied in commits 546e7e9):** the embedded
+> listings above are superseded by the corrected committed files. Review
+> findings fixed: (1) compose service is `db`, not `mariadb-db`, and phase 3
+> also runs the `configurator` oneshot (backend depends on its completion);
+> (2) site phase is idempotent (skips `new-site` when `sites/basapos.local`
+> exists, migrate only) and reads DB password via `tail -1` (duplicate-append
+> safe); (3) runtime `bench build` + asset tar-pipe REMOVED — assets are
+> baked into the image layer at CI build; (4) dynamic.yml uses container-side
+> `/certs/*.pem` paths (proxy bind mount); (5) firstboot.service sets
+> `TimeoutStartSec=infinity` (90s default would kill a 10-30 min run);
+> (6) backup script takes a flock, anchors retention glob to the timestamp
+> shape, and always cleans the in-container staging dir. Source of truth:
+> `appliance/overlay/` as committed.
+
 ```bash
 chmod +x appliance/overlay/usr/local/sbin/*
 shellcheck -S error appliance/overlay/usr/local/sbin/* scripts/gen-compose.sh
