@@ -18,6 +18,9 @@ log() {
 done_phase() { [ -f "$STATE/$1" ]; }
 mark() { touch "$STATE/$1"; }
 dc() { docker compose --env-file "$C/.env" -f "$C/compose.final.yaml" "$@"; }
+# run a command, tee full output to the in-VM log AND the Windows-captured log
+# so CI/field diagnosis sees what happened (docker load, bench new-site, etc.)
+tee_log() { "$@" 2>&1 | tee -a "$LOG" >> "$WINLOG"; }
 
 mkdir -p "$STATE" /mnt/c/BasaPOS/logs
 touch "$WINLOG" 2>/dev/null || true
@@ -28,7 +31,7 @@ ADMIN_PW=""
 
 if ! done_phase loaded; then
   log 1 "docker load images.tar"
-  docker load -i "$B/images.tar" >>"$LOG" 2>&1 && mark loaded || { log 1 "load failed"; exit 1; }
+  tee_log docker load -i "$B/images.tar" && mark loaded || { log 1 "load failed"; exit 1; }
 fi
 
 if ! done_phase env; then
@@ -63,8 +66,8 @@ DB_ROOT_PW="$(grep '^DB_ROOT_PASSWORD=' "$CREDS/credentials.txt" | cut -d= -f2 |
 # ignores the restart policy.
 if ! done_phase stack; then
   log 3 "start db + cache tiers + configurator"
-  dc up -d db redis-cache redis-queue >>"$LOG" 2>&1 \
-    && dc run --rm configurator >>"$LOG" 2>&1 \
+  tee_log dc up -d db redis-cache redis-queue \
+    && tee_log dc run --rm configurator \
     && mark stack || { log 3 "tier start failed"; exit 1; }
 fi
 
@@ -91,16 +94,16 @@ if ! done_phase site; then
   # exist_ok). Without this, a kill during new-site leaves sites/basapos.local
   # present but the DB tables missing → migrate dies on "Patch Log".
   # shellcheck disable=SC2086
-  dc run --rm --no-deps backend bench new-site \
+  tee_log dc run --rm --no-deps backend bench new-site \
     --mariadb-user-host-login-scope=% \
     --db-name basapos_local \
     --db-root-password "$DB_ROOT_PW" \
-    $FLAGS --admin-password "$ADMIN_PW" --force basapos.local >>"$LOG" 2>&1 \
+    $FLAGS --admin-password "$ADMIN_PW" --force basapos.local \
     || { log 4 "new-site failed"; exit 1; }
   # NOTE: no runtime `bench build` / asset tar-pipe — assets are baked into
   # the image layer at CI build (frappe_docker layered Containerfile); runtime
   # builds in `run --rm` containers would be discarded with the container.
-  dc run --rm --no-deps backend bench --site basapos.local migrate >>"$LOG" 2>&1 \
+  tee_log dc run --rm --no-deps backend bench --site basapos.local migrate \
     || { log 4 "migrate failed"; exit 1; }
   mark site
 fi
@@ -127,7 +130,7 @@ fi
 
 if ! done_phase booted; then
   log 6 "full stack up --wait"
-  dc up -d --wait >>"$LOG" 2>&1 && mark booted || { log 6 "stack failed to come up"; exit 1; }
+  tee_log dc up -d --wait && mark booted || { log 6 "stack failed to come up"; exit 1; }
 fi
 
 if ! done_phase done; then

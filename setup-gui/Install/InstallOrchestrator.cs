@@ -43,6 +43,12 @@ public sealed class InstallOrchestrator(ISetupUi ui)
         var ramGiB = MemoryGB();
         WslConfig.Write(Math.Clamp(ramGiB / 2, 4, 8) * 1024L * 1024 * 1024);
         HostsFile.Ensure();
+        // .wslconfig is only read when the WSL2 VM next STARTS. If a VM is
+        // already up (e.g. another distro), our vmIdleTimeout=-1 would not
+        // apply and the VM idles out ~60s after the last wsl.exe client,
+        // killing firstboot mid-docker-load. Force a full shutdown so the
+        // first boot of BasaPOS reads the fresh config.
+        try { WslRunner.Wsl("--shutdown", 60); } catch { /* no VM running yet */ }
 
         ui.Status("Registering autostart...");                            // 7
         BootWrapper.Write();
@@ -53,6 +59,12 @@ public sealed class InstallOrchestrator(ISetupUi ui)
         if (boot.ExitCode != 0)
             throw new InvalidOperationException(
                 $"Could not start the BasaPOS distro (exit {boot.ExitCode}).\n{boot.Output}\n{boot.Error}");
+
+        // Hold the WSL VM open for the whole poll: one long-lived wsl.exe
+        // session keeps the VM from idling out (idle = no connected client)
+        // and killing firstboot mid-docker-load. vmIdleTimeout=-1 covers
+        // steady-state runtime; this keeper bridges the install window.
+        using var keeper = VmKeeper.Start();
         var ok = HealthPoller.WaitHealthy(s => ui.Status("  " + s)).GetAwaiter().GetResult();
 
         ui.Status("Trusting certificate...");                             // 9
