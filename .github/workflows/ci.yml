@@ -148,8 +148,8 @@ jobs:
         with:
           name: e2e-logs
           path: |
-            ${{ runner.temp }}/basapos-setup.log
             C:/BasaPOS/logs/**
+            C:/BasaPOS/config/credentials.txt
           if-no-files-found: ignore
 
   release:

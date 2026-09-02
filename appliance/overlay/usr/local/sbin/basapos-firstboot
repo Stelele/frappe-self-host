@@ -69,32 +69,34 @@ if ! done_phase stack; then
 fi
 
 if ! done_phase site; then
-  if dc run --rm --no-deps backend test -d sites/basapos.local; then
-    log 4 "site exists (partial previous run) — skip new-site, migrate only"
-  else
-    log 4 "new-site basapos.local"
-    # Read apps.txt with the entrypoint OVERRIDDEN: `compose run` goes through
-    # the backend image's entrypoint, whose "Linking fresh assets to volume..."
-    # stdout echo pollutes the captured list (v3 field bug: --install-app
-    # Linking). The Linux flow's create-site.sh uses `exec` (no entrypoint).
-    APPS="$(dc run --rm --no-deps --entrypoint sh backend -c "cat sites/apps.txt" 2>>"$LOG" \
-      | grep -v '^frappe$' | tr '\n' ' ')"
-    [ -n "$APPS" ] || { log 4 "apps.txt unreadable"; exit 1; }
-    FLAGS=""
-    for a in $APPS; do
-      # app names are python module names — anything else means the capture
-      # got polluted; fail HERE with a clear message, not deep inside frappe
-      echo "$a" | grep -Eq '^[a-z][a-z0-9_]*$' \
-        || { log 4 "invalid app name in apps.txt: '$a'"; exit 1; }
-      FLAGS="$FLAGS --install-app $a"
-    done
-    # shellcheck disable=SC2086
-    dc run --rm --no-deps backend bench new-site \
-      --mariadb-user-host-login-scope=% \
-      --db-root-password "$DB_ROOT_PW" \
-      $FLAGS --admin-password "$ADMIN_PW" basapos.local >>"$LOG" 2>&1 \
-      || { log 4 "new-site failed"; exit 1; }
-  fi
+  log 4 "new-site basapos.local (idempotent: --force --db-name)"
+  # Read apps.txt with the entrypoint OVERRIDDEN: `compose run` goes through
+  # the backend image's entrypoint, whose "Linking fresh assets to volume..."
+  # stdout echo pollutes the captured list (v3 field bug: --install-app
+  # Linking). The Linux flow's create-site.sh uses `exec` (no entrypoint).
+  APPS="$(dc run --rm --no-deps --entrypoint sh backend -c "cat sites/apps.txt" 2>>"$LOG" \
+    | grep -v '^frappe$' | tr '\n' ' ')"
+  [ -n "$APPS" ] || { log 4 "apps.txt unreadable"; exit 1; }
+  FLAGS=""
+  for a in $APPS; do
+    # app names are python module names — anything else means the capture
+    # got polluted; fail HERE with a clear message, not deep inside frappe
+    echo "$a" | grep -Eq '^[a-z][a-z0-9_]*$' \
+      || { log 4 "invalid app name in apps.txt: '$a'"; exit 1; }
+    FLAGS="$FLAGS --install-app $a"
+  done
+  # --force + a FIXED --db-name make new-site re-runnable: on re-entry after a
+  # mid-install power cut, frappe drops the partial DB and installs fresh
+  # (setup_database drops basapos_local when force is set; make_site_dirs is
+  # exist_ok). Without this, a kill during new-site leaves sites/basapos.local
+  # present but the DB tables missing → migrate dies on "Patch Log".
+  # shellcheck disable=SC2086
+  dc run --rm --no-deps backend bench new-site \
+    --mariadb-user-host-login-scope=% \
+    --db-name basapos_local \
+    --db-root-password "$DB_ROOT_PW" \
+    $FLAGS --admin-password "$ADMIN_PW" --force basapos.local >>"$LOG" 2>&1 \
+    || { log 4 "new-site failed"; exit 1; }
   # NOTE: no runtime `bench build` / asset tar-pipe — assets are baked into
   # the image layer at CI build (frappe_docker layered Containerfile); runtime
   # builds in `run --rm` containers would be discarded with the container.

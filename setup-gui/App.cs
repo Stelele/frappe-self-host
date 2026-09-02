@@ -8,7 +8,11 @@ public static class App
     /// Exit codes: 0 ok · 1 fatal · 3 install finished but never healthy · 4 reboot required
     public static int RunUnattended(bool install, string[] args)
     {
-        var logFile = Path.Combine(Path.GetTempPath(), "basapos-setup.log");
+        // Fixed, CI-capturable log location: %TEMP% resolves differently for
+        // the elevated (requireAdministrator) process than the invoking shell,
+        // so C:\BasaPOS\logs\install.log is the reliable path for drill uploads.
+        Directory.CreateDirectory(Paths.LogsDir);
+        var logFile = Path.Combine(Paths.LogsDir, "install.log");
         using var log = new StreamWriter(logFile, append: false) { AutoFlush = true };
         void Say(string s)
         {

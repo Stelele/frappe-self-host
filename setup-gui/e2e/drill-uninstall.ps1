@@ -3,9 +3,7 @@ $ErrorActionPreference = 'Stop'
 Write-Host "=== drill: uninstall ==="
 $p = Start-Process -FilePath $SetupExe -ArgumentList '--uninstall','--unattended' -Wait -PassThru -NoNewWindow
 if ($p.ExitCode -ne 0) {
-    $logFile = Join-Path $env:TEMP 'basapos-setup.log'
-    if (-not (Test-Path $logFile)) { $logFile = 'C:\Windows\Temp\basapos-setup.log' }
-    Get-Content $logFile -ErrorAction SilentlyContinue | Select-Object -Last 40
+    Get-Content 'C:\BasaPOS\logs\install.log' -ErrorAction SilentlyContinue | Select-Object -Last 40
     throw "uninstall exited $($p.ExitCode)"
 }
 Start-Sleep -Seconds 5
