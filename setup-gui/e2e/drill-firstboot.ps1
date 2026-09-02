@@ -1,6 +1,7 @@
 param(
     [string]$DistroTar,
-    [string]$Phases = '',     # whitespace-separated subset; empty = all phases
+    [int]$Start = 0,      # phase index range to run (inclusive); -End -1 = all
+    [int]$End = -1,
     [switch]$SkipBackup
 )
 $ErrorActionPreference = 'Stop'
@@ -8,11 +9,11 @@ $ErrorActionPreference = 'Stop'
 # distro, let systemd auto-run firstboot, kill the whole VM mid-flight via
 # `wsl --shutdown` (a truer power-cut than any container kill), reboot, and
 # require convergence to `done` + an HTTP 200. Runs once per phase. The phases
-# are independent, so CI shards the list across parallel jobs.
-# NOTE: phases are whitespace-separated (NOT comma) — PowerShell -File treats a
-# comma as an array separator, which mangles the value into "a b".
+# are independent, so CI shards the list across parallel jobs. Phases are
+# selected by INDEX (not name) — string args get mangled by `powershell -File`.
 $allPhases = @('(boot)', 'loaded', 'env', 'stack', 'site', 'cert', 'booted', 'done')
-$phases = if ($Phases) { ($Phases -split '\s+') | ForEach-Object { $_.Trim() } | Where-Object { $_ } } else { $allPhases }
+if ($End -lt 0 -or $End -ge $allPhases.Count) { $End = $allPhases.Count - 1 }
+$phases = $allPhases[$Start..$End]
 $tar = (Resolve-Path $DistroTar).Path
 
 function Wait-Sentinel([string]$phase, [int]$maxSec) {
