@@ -169,6 +169,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           (cd out && sha256sum BasaPOS-Setup.exe >> payload/SHA256SUMS)
+          NOTES="BasaPOS offline installer (Windows).
+          One-shot download + USB assembly:
+            scripts/fetch-release.sh ${{ github.ref_name }}
+          or just: gh release download ${{ github.ref_name }}
+          Layout: BasaPOS-Setup.exe + payload/ (parts + SHA256SUMS + wsl.msi)."
           gh release create "${{ github.ref_name }}" out/BasaPOS-Setup.exe out/payload/* \
             --title "${{ github.ref_name }}" \
-            --notes "BasaPOS offline installer. Copy BasaPOS-Setup.exe + payload/ to USB. Verify SHA256SUMS before running."
+            --notes "$NOTES"

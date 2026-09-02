@@ -1,5 +1,26 @@
 # BasaPOS on Windows — Tech Runbook
 
+## Download a release
+
+A release ships as a few assets (Setup.exe + a multi-part distro tarball —
+GitHub caps assets at 2 GB, and the distro is ~5 GB). Don't download them one
+by one; fetch + assemble the USB folder in one command:
+
+```bash
+scripts/fetch-release.sh v3.0.0-rc1
+# → release/v3.0.0-rc1/BasaPOS-Setup.exe
+#   release/v3.0.0-rc1/payload/  (parts + SHA256SUMS + wsl.msi)
+```
+
+or just grab every asset flat (needs `gh` authed):
+
+```bash
+gh release download v3.0.0-rc1
+```
+
+The installer re-verifies the stitched tarball against `payload/SHA256SUMS`
+before importing, so a corrupt part can't produce a broken install.
+
 ## Install (fresh machine)
 
 1. BIOS: enable virtualization (VT-x/AMD-V).
