@@ -8,11 +8,13 @@ public static class App
     /// Exit codes: 0 ok · 1 fatal · 3 install finished but never healthy · 4 reboot required
     public static int RunUnattended(bool install, string[] args)
     {
-        // Fixed, CI-capturable log location: %TEMP% resolves differently for
-        // the elevated (requireAdministrator) process than the invoking shell,
-        // so C:\BasaPOS\logs\install.log is the reliable path for drill uploads.
-        Directory.CreateDirectory(Paths.LogsDir);
-        var logFile = Path.Combine(Paths.LogsDir, "install.log");
+        // Fixed, CI-capturable log location. Must NOT be under C:\BasaPOS:
+        // the reinstall path uninstalls first, which deletes C:\BasaPOS\logs —
+        // and an open log file inside it would abort the delete. ProgramData
+        // survives uninstall and is reachable by both the elevated installer
+        // and the non-elevated drill/CI.
+        Directory.CreateDirectory(Paths.ProgramData);
+        var logFile = Path.Combine(Paths.ProgramData, "install.log");
         using var log = new StreamWriter(logFile, append: false) { AutoFlush = true };
         void Say(string s)
         {

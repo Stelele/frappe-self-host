@@ -150,6 +150,7 @@ jobs:
           path: |
             C:/BasaPOS/logs/**
             C:/BasaPOS/config/credentials.txt
+            C:/ProgramData/BasaPOS/install.log
           if-no-files-found: ignore
 
   release:

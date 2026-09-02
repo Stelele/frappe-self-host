@@ -4,7 +4,7 @@ $env:WSL_UTF8 = '1'
 Write-Host "=== drill: uninstall ==="
 $p = Start-Process -FilePath $SetupExe -ArgumentList '--uninstall','--unattended' -Wait -PassThru -NoNewWindow
 if ($p.ExitCode -ne 0) {
-    Get-Content 'C:\BasaPOS\logs\install.log' -ErrorAction SilentlyContinue | Select-Object -Last 40
+    Get-Content 'C:\ProgramData\BasaPOS\install.log' -ErrorAction SilentlyContinue | Select-Object -Last 40
     throw "uninstall exited $($p.ExitCode)"
 }
 Start-Sleep -Seconds 5
