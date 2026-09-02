@@ -16,5 +16,6 @@
     <!-- link ALL Install/ sources: logic classes stay WinForms-free (ISetupUi
          surface) so they compile+run on Linux; glob avoids per-file drift -->
     <Compile Include="..\setup-gui\Install\**\*.cs" Link="Install\%(RecursiveDir)%(Filename)%(Extension)" />
+    <Compile Include="..\downloader\ReleaseClient.cs" Link="Downloader\ReleaseClient.cs" />
   </ItemGroup>
 </Project>
