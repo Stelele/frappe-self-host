@@ -24,14 +24,21 @@ rm -rf "$STAGE"; mkdir -p "$STAGE"
 mkdir -p "$OUT_DIR"
 
 echo "== 1/6 build frappe image (ONE build — parity by construction) =="
-CACHE_BUST="$(sha256sum apps.json | cut -d' ' -f1)"
-docker build \
-  --build-arg=FRAPPE_PATH=https://github.com/frappe/frappe \
-  --build-arg=FRAPPE_BRANCH=version-16 \
-  --build-arg=CACHE_BUST="$CACHE_BUST" \
-  --secret=id=apps_json,src=apps.json \
-  --tag="$IMAGE_TAG" \
-  --file=frappe_docker/images/layered/Containerfile frappe_docker
+# CI builds basapos:16 ahead of time via buildx with GitHub layer cache; if the
+# image is already present (local rebuild OR CI cache hit), skip the ~45-60 min
+# cold build.
+if ! docker image inspect "$IMAGE_TAG" >/dev/null 2>&1; then
+  CACHE_BUST="$(sha256sum apps.json | cut -d' ' -f1)"
+  docker build \
+    --build-arg=FRAPPE_PATH=https://github.com/frappe/frappe \
+    --build-arg=FRAPPE_BRANCH=version-16 \
+    --build-arg=CACHE_BUST="$CACHE_BUST" \
+    --secret=id=apps_json,src=apps.json \
+    --tag="$IMAGE_TAG" \
+    --file=frappe_docker/images/layered/Containerfile frappe_docker
+else
+  echo "image $IMAGE_TAG already present — skipping build"
+fi
 
 echo "== 2/6 save images.tar (4 pinned stack images) =="
 docker pull -q mariadb:11.8
