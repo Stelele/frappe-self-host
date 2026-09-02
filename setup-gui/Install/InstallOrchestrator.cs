@@ -65,7 +65,7 @@ public sealed class InstallOrchestrator(ISetupUi ui)
         // and killing firstboot mid-docker-load. vmIdleTimeout=-1 covers
         // steady-state runtime; this keeper bridges the install window.
         using var keeper = VmKeeper.Start();
-        var ok = HealthPoller.WaitHealthy(s => ui.Status("  " + s)).GetAwaiter().GetResult();
+        var ok = HealthPoller.WaitHealthy(s => ui.Status("  " + s), maxMinutes: 30).GetAwaiter().GetResult();
 
         ui.Status("Trusting certificate...");                             // 9
         var cert = Path.Combine(Paths.ConfigDir, "basapos.crt");

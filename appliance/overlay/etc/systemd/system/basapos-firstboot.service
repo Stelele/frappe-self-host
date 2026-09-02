@@ -9,6 +9,14 @@ Type=oneshot
 # the 90s default would SIGKILL the run mid-phase
 TimeoutStartSec=infinity
 RemainAfterExit=yes
+# Transient phase failures (e.g. mariadb fresh-volume init exceeding its
+# healthcheck retries on slow disks) must NOT kill the install: restart the
+# script; sentinels skip completed phases so re-runs converge. Bounded so a
+# genuinely broken stack gives up rather than looping forever.
+Restart=on-failure
+RestartSec=10
+StartLimitIntervalSec=1800
+StartLimitBurst=10
 ExecStart=/usr/local/sbin/basapos-firstboot
 StandardOutput=journal
 StandardError=journal
