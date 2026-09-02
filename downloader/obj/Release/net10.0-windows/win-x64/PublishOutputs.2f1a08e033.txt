@@ -1,2 +1,0 @@
-/tmp/opencode/dl-publish/BasaPOS-Downloader.pdb
-/tmp/opencode/dl-publish/BasaPOS-Downloader.exe

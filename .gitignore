@@ -29,3 +29,5 @@ setup-gui/bin/
 setup-gui/obj/
 setup-gui.tests/bin/
 setup-gui.tests/obj/
+downloader/bin/
+downloader/obj/
