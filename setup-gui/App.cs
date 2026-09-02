@@ -24,6 +24,13 @@ public static class App
         {
             if (install)
             {
+                // reinstall semantics: an existing distro makes `wsl --import`
+                // collide — uninstall first (matches MainForm's reinstall path)
+                if (Detect.IsInstalled())
+                {
+                    Say("Existing installation detected — uninstalling before reinstall…");
+                    new Uninstaller(ui).Run(keepBackups: true);
+                }
                 new InstallOrchestrator(ui).RunAll(PayloadFrom(args));
                 if (ui.RebootNeeded) return 4;
                 return ui.Healthy ? 0 : 3;
