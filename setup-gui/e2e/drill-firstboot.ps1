@@ -1,6 +1,6 @@
 param(
     [string]$DistroTar,
-    [string]$Phases = '',     # comma-separated subset; empty = all phases
+    [string]$Phases = '',     # whitespace-separated subset; empty = all phases
     [switch]$SkipBackup
 )
 $ErrorActionPreference = 'Stop'
@@ -9,8 +9,10 @@ $ErrorActionPreference = 'Stop'
 # `wsl --shutdown` (a truer power-cut than any container kill), reboot, and
 # require convergence to `done` + an HTTP 200. Runs once per phase. The phases
 # are independent, so CI shards the list across parallel jobs.
+# NOTE: phases are whitespace-separated (NOT comma) — PowerShell -File treats a
+# comma as an array separator, which mangles the value into "a b".
 $allPhases = @('(boot)', 'loaded', 'env', 'stack', 'site', 'cert', 'booted', 'done')
-$phases = if ($Phases) { $Phases -split ',' | ForEach-Object { $_.Trim() } } else { $allPhases }
+$phases = if ($Phases) { ($Phases -split '\s+') | ForEach-Object { $_.Trim() } | Where-Object { $_ } } else { $allPhases }
 $tar = (Resolve-Path $DistroTar).Path
 
 function Wait-Sentinel([string]$phase, [int]$maxSec) {

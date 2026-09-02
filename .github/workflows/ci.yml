@@ -97,16 +97,16 @@ jobs:
       matrix:
         include:
           - name: boot-loaded
-            phases: "(boot),loaded"
+            phases: "(boot) loaded"
             skipbackup: "-SkipBackup"
           - name: env-stack
-            phases: "env,stack"
+            phases: "env stack"
             skipbackup: "-SkipBackup"
           - name: site-cert
-            phases: "site,cert"
+            phases: "site cert"
             skipbackup: "-SkipBackup"
           - name: booted-done
-            phases: "booted,done"
+            phases: "booted done"
             skipbackup: ""
     steps:
       - uses: actions/checkout@v4
