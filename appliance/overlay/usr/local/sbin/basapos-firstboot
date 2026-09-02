@@ -73,10 +73,21 @@ if ! done_phase site; then
     log 4 "site exists (partial previous run) — skip new-site, migrate only"
   else
     log 4 "new-site basapos.local"
-    APPS="$(dc run --rm --no-deps backend sh -c "cat sites/apps.txt | grep -v '^frappe$' | tr '\n' ' '" 2>>"$LOG")"
+    # Read apps.txt with the entrypoint OVERRIDDEN: `compose run` goes through
+    # the backend image's entrypoint, whose "Linking fresh assets to volume..."
+    # stdout echo pollutes the captured list (v3 field bug: --install-app
+    # Linking). The Linux flow's create-site.sh uses `exec` (no entrypoint).
+    APPS="$(dc run --rm --no-deps --entrypoint sh backend -c "cat sites/apps.txt" 2>>"$LOG" \
+      | grep -v '^frappe$' | tr '\n' ' ')"
     [ -n "$APPS" ] || { log 4 "apps.txt unreadable"; exit 1; }
     FLAGS=""
-    for a in $APPS; do FLAGS="$FLAGS --install-app $a"; done
+    for a in $APPS; do
+      # app names are python module names — anything else means the capture
+      # got polluted; fail HERE with a clear message, not deep inside frappe
+      echo "$a" | grep -Eq '^[a-z][a-z0-9_]*$' \
+        || { log 4 "invalid app name in apps.txt: '$a'"; exit 1; }
+      FLAGS="$FLAGS --install-app $a"
+    done
     # shellcheck disable=SC2086
     dc run --rm --no-deps backend bench new-site \
       --mariadb-user-host-login-scope=% \
