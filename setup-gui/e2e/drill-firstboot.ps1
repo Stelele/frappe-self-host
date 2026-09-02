@@ -1,10 +1,16 @@
-param([string]$DistroTar)
+param(
+    [string]$DistroTar,
+    [string]$Phases = '',     # comma-separated subset; empty = all phases
+    [switch]$SkipBackup
+)
 $ErrorActionPreference = 'Stop'
 # Firstboot convergence drill on REAL WSL2 (the production runtime): import the
 # distro, let systemd auto-run firstboot, kill the whole VM mid-flight via
 # `wsl --shutdown` (a truer power-cut than any container kill), reboot, and
-# require convergence to `done` + an HTTP 200. Runs once per phase.
-$phases = @('(boot)', 'loaded', 'env', 'stack', 'site', 'cert', 'booted', 'done')
+# require convergence to `done` + an HTTP 200. Runs once per phase. The phases
+# are independent, so CI shards the list across parallel jobs.
+$allPhases = @('(boot)', 'loaded', 'env', 'stack', 'site', 'cert', 'booted', 'done')
+$phases = if ($Phases) { $Phases -split ',' | ForEach-Object { $_.Trim() } } else { $allPhases }
 $tar = (Resolve-Path $DistroTar).Path
 
 function Wait-Sentinel([string]$phase, [int]$maxSec) {
@@ -72,14 +78,16 @@ foreach ($p in $phases) {
     Write-Host ("OK: converged after power-cut at {0} ({1:n0}s)" -f $p, ((Get-Date) - $t0).TotalSeconds)
 }
 
-# backup timer smoke
-wsl -d BasaPOS -u root -- systemctl start basapos-backup.service
-Start-Sleep -Seconds 60
-if (-not (Get-ChildItem 'C:\BasaPOS\backups' -Filter '20*' -ErrorAction SilentlyContinue)) {
-    wsl -d BasaPOS -- sh -c 'journalctl -u basapos-backup.service --no-pager | tail -30' 2>$null
-    throw 'backup did not land in C:\BasaPOS\backups'
+# backup timer smoke (one shard only — the others pass -SkipBackup)
+if (-not $SkipBackup) {
+    wsl -d BasaPOS -u root -- systemctl start basapos-backup.service
+    Start-Sleep -Seconds 60
+    if (-not (Get-ChildItem 'C:\BasaPOS\backups' -Filter '20*' -ErrorAction SilentlyContinue)) {
+        wsl -d BasaPOS -- sh -c 'journalctl -u basapos-backup.service --no-pager | tail -30' 2>$null
+        throw 'backup did not land in C:\BasaPOS\backups'
+    }
 }
 
 wsl --unregister BasaPOS 2>$null | Out-Null
 Remove-Item 'C:\basapos-drill' -Recurse -Force -ErrorAction SilentlyContinue
-Write-Host 'FIRSTBOOT DRILL PASS (real WSL2)'
+Write-Host ("FIRSTBOOT DRILL PASS ({0})" -f (($phases) -join ', '))

@@ -111,7 +111,23 @@ jobs:
     needs: distro
     if: github.event_name != 'pull_request'
     runs-on: windows-latest
-    timeout-minutes: 420
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: boot-loaded
+            phases: "(boot),loaded"
+            skipbackup: "-SkipBackup"
+          - name: env-stack
+            phases: "env,stack"
+            skipbackup: "-SkipBackup"
+          - name: site-cert
+            phases: "site,cert"
+            skipbackup: "-SkipBackup"
+          - name: booted-done
+            phases: "booted,done"
+            skipbackup: ""
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
@@ -121,14 +137,14 @@ jobs:
       - name: Stitch + verify distro tarball
         shell: pwsh
         run: powershell -NoProfile -ExecutionPolicy Bypass -File setup-gui/e2e/stitch-parts.ps1 -PartsDir parts -OutFile distro.tar.gz
-      - name: Kill-at-every-phase convergence drill (real WSL2)
+      - name: Kill-at-every-phase convergence drill (${{ matrix.name }})
         shell: pwsh
-        run: powershell -NoProfile -ExecutionPolicy Bypass -File setup-gui/e2e/drill-firstboot.ps1 -DistroTar distro.tar.gz
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File setup-gui/e2e/drill-firstboot.ps1 -DistroTar distro.tar.gz -Phases "${{ matrix.phases }}" ${{ matrix.skipbackup }}
       - name: Drill logs on failure
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: firstboot-drill-logs
+          name: firstboot-drill-logs-${{ matrix.name }}
           path: |
             C:/BasaPOS/logs/**
             C:/BasaPOS/backups/**
