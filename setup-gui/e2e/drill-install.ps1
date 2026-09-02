@@ -1,5 +1,8 @@
 param([string]$SetupExe, [string]$PayloadDir)
 $ErrorActionPreference = 'Stop'
+# wsl.exe emits UTF-16LE; without this, PS5.1 decodes `wsl --list` as the
+# console codepage → garbled → 'BasaPOS' match fails
+$env:WSL_UTF8 = '1'
 Write-Host "=== drill: install ($SetupExe, payload $PayloadDir) ==="
 # WinExe (GUI subsystem) processes return immediately from the call operator —
 # must Start-Process -Wait or the drill races the installer

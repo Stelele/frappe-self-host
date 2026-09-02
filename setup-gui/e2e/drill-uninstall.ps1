@@ -1,5 +1,6 @@
 param([string]$SetupExe)
 $ErrorActionPreference = 'Stop'
+$env:WSL_UTF8 = '1'
 Write-Host "=== drill: uninstall ==="
 $p = Start-Process -FilePath $SetupExe -ArgumentList '--uninstall','--unattended' -Wait -PassThru -NoNewWindow
 if ($p.ExitCode -ne 0) {

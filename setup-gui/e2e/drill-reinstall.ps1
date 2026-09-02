@@ -1,5 +1,6 @@
 param([string]$SetupExe, [string]$PayloadDir)
 $ErrorActionPreference = 'Stop'
+$env:WSL_UTF8 = '1'
 Write-Host '=== drill: reinstall (uninstall -> install) ==='
 $p1 = Start-Process -FilePath $SetupExe -ArgumentList '--install','--unattended','--payload',$PayloadDir -Wait -PassThru -NoNewWindow
 if ($p1.ExitCode -ne 0) { throw "install #1 failed ($($p1.ExitCode))" }
