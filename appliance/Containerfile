@@ -6,6 +6,7 @@ ENV DEBIAN_FRONTEND=noninteractive LC_ALL=C.UTF-8 LANG=C.UTF-8
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
       ca-certificates curl systemd systemd-sysv docker.io docker-compose-v2 \
+      dbus dbus-user-session \
       openssl e2fsprogs util-linux \
     && rm -rf /var/lib/apt/lists/*
 
@@ -22,9 +23,15 @@ COPY appliance/.payload/opt/basapos/image-digest.txt /opt/basapos/image-digest.t
 COPY appliance/.payload/compose-parity.yaml /opt/basapos/compose-parity.yaml
 
 # ---- systemd wiring ---------------------------------------------------------
+# dbus + the user session bus are REQUIRED: without them WSL fails to start the
+# systemd *user* session on every `wsl -d BasaPOS -- <cmd>` ("Failed to
+# initialize systemd user 'root'"), which breaks the boot wrapper + health check
+# and makes every wsl command hang/error.
 RUN chmod 0755 /usr/local/sbin/basapos-firstboot /usr/local/sbin/basapos-backup \
-    && mkdir -p /etc/systemd/system/multi-user.target.wants \
-    && ln -s /etc/systemd/system/basapos-firstboot.service /etc/systemd/system/multi-user.target.wants/basapos-firstboot.service \
-    && ln -s /etc/systemd/system/basapos-backup.timer /etc/systemd/system/timers.target.wants/basapos-backup.timer \
+    && mkdir -p /etc/systemd/system/multi-user.target.wants /etc/systemd/system/timers.target.wants /etc/systemd/system/sockets.target.wants \
+    && ln -sf /etc/systemd/system/basapos-firstboot.service /etc/systemd/system/multi-user.target.wants/basapos-firstboot.service \
+    && ln -sf /etc/systemd/system/basapos-backup.timer /etc/systemd/system/timers.target.wants/basapos-backup.timer \
     && systemctl enable docker.service 2>/dev/null || true \
+    && ln -sf /lib/systemd/system/dbus.service /etc/systemd/system/multi-user.target.wants/dbus.service \
+    && ln -sf /lib/systemd/system/dbus.socket /etc/systemd/system/sockets.target.wants/dbus.socket \
     && printf '' > /etc/machine-id

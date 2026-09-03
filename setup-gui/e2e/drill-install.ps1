@@ -22,4 +22,11 @@ if (-not (Test-Path C:\ProgramData\BasaPOS\boot.cmd))   { throw 'boot.cmd missin
 $logFile = 'C:\ProgramData\BasaPOS\install.log'
 $log = Get-Content $logFile -Raw -ErrorAction SilentlyContinue
 if ($log -notmatch 'DONE password=') { throw 'no DONE marker in setup log' }
+
+# REAL user path: a Windows browser-equivalent request over the hosts entry +
+# localhostForwarding, with TLS validated against the Windows trust store
+# (curl.exe uses schannel; NO -k). This is what the user's Chrome does.
+$code = curl.exe -sS -o NUL -w '%{http_code}' https://basapos.local/api/method/ping
+if ($code -ne '200') { throw "site not reachable/trusted from Windows (http $code)" }
+Write-Host "browser-path ping: HTTP $code"
 Write-Host 'DRILL INSTALL PASS'

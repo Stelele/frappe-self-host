@@ -5,10 +5,13 @@ namespace BasaPOS.Setup.Install;
 
 public static class HealthPoller
 {
+    // Primary health check: hit the site from WINDOWS over the real browser
+    // network path (hosts entry + WSL localhostForwarding), pinning the cert to
+    // basapos.crt so we verify the SITE's own certificate. The cert isn't in the
+    // trust store yet during this window (that's step 9), so we pin by thumbprint
+    // here and do a proper trust-store check later via VerifyBrowserTrusted.
     public static async Task<bool> WaitHealthy(Action<string> status, int maxMinutes = 15)
     {
-        // NOTE: pin is (re-)read lazily inside the loop — on fresh installs
-        // basapos.crt only appears when firstboot phase 5 completes, minutes in
         string? pinnedThumbprint = null;
         var certFile = Path.Combine(Paths.ConfigDir, "basapos.crt");
 
@@ -25,41 +28,35 @@ public static class HealthPoller
         while (DateTime.UtcNow < deadline)
         {
             attempt++;
-
             if (pinnedThumbprint is null && File.Exists(certFile))
             {
-                try
-                {
-                    pinnedThumbprint = X509CertificateLoader.LoadCertificateFromFile(certFile).Thumbprint;
-                    status("Certificate pin loaded.");
-                }
+                try { pinnedThumbprint = X509CertificateLoader.LoadCertificateFromFile(certFile).Thumbprint; }
                 catch { /* cert mid-write — retry next poll */ }
             }
-
             try
             {
                 var r = await http.GetAsync(Paths.SiteUrl + "/api/method/ping");
                 if (r.IsSuccessStatusCode) { status($"Healthy after {attempt} polls."); return true; }
             }
             catch { /* not up yet */ }
-
-            if (attempt % 6 == 0)
-            {
-                // inside-WSL fallback (v2 lesson: Windows-side polling can lie)
-                try
-                {
-                    var inWsl = WslRunner.RunAnsi(
-                        Environment.SystemDirectory + @"\wsl.exe",
-                        $"-d {Paths.DistroName} -- curl -sk -o /dev/null -w %{{http_code}} https://localhost/api/method/ping",
-                        30);
-                    if (inWsl.Output.Trim().EndsWith("200"))
-                    { status("Healthy (in-WSL check)."); return true; }
-                }
-                catch { /* distro busy — keep polling */ }
-            }
             status($"Waiting for site... (poll {attempt})");
             await Task.Delay(TimeSpan.FromSeconds(10));
         }
+        return false;
+    }
+
+    // Browser-equivalent check: default TLS validation against the Windows
+    // trust store — exactly what Chrome/Edge do. Used AFTER the certificate is
+    // imported, so "done" means a real browser will work, not just our pin.
+    public static async Task<bool> VerifyBrowserTrusted(Action<string> status)
+    {
+        using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(15) };
+        try
+        {
+            var r = await http.GetAsync(Paths.SiteUrl + "/api/method/ping");
+            if (r.IsSuccessStatusCode) { status("Certificate trusted by Windows (browser path OK)."); return true; }
+        }
+        catch { /* cert not trusted or site unreachable */ }
         return false;
     }
 }

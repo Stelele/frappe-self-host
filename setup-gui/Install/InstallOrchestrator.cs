@@ -75,12 +75,27 @@ public sealed class InstallOrchestrator(ISetupUi ui)
 
         if (ok)
         {
-            ui.Healthy = true;
-            ui.ShowDone(pw);
+            // Browser-path gate: the certificate must now validate against the
+            // Windows trust store (what Chrome/Edge use), not just our pin —
+            // otherwise a real browser warns/fails even though the appliance is
+            // healthy on the inside.
+            var browserOk = HealthPoller.VerifyBrowserTrusted(s => ui.Status("  " + s))
+                .GetAwaiter().GetResult();
+            if (browserOk)
+            {
+                ui.Healthy = true;
+                ui.ShowDone(pw);
+            }
+            else
+            {
+                ui.Status("Site is up but the certificate is NOT trusted by Windows. " +
+                          "A browser will show a warning. Re-run Setup, or import " +
+                          cert + " into Trusted Root Certification Authorities.");
+            }
         }
         else
         {
-            ui.Status("Site did not become healthy in 15 min. Re-run Setup to retry, " +
+            ui.Status("Site did not become healthy in 30 min. Re-run Setup to retry, " +
                       "or Uninstall + Install fresh.");
         }
     }
