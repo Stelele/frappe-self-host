@@ -14,6 +14,10 @@ public class OrchestrationTests
         Assert.Contains("ping -n 11 127.0.0.1", s);
         Assert.DoesNotContain("timeout /t", s);
         Assert.DoesNotContain("%USERPROFILE%", s); // ProgramData, not profile (v2 lesson)
+        // keeper: holds the VM open so it never idles out (vmIdleTimeout ignored)
+        Assert.Contains("goto :hold", s);
+        Assert.Contains("--exec /bin/sleep infinity", s);
+        Assert.DoesNotContain("if %errorlevel%==0 exit /b 0", s); // must NOT exit on healthy
     }
 
     [Fact]
