@@ -17,24 +17,52 @@ public static class WslConfig
         WriteAtomic(WslConfigPath, final);
     }
 
-    public static void RemoveManagedBlock()
+    /// Removes ALL BasaPOS-managed blocks (case-insensitive Begin/End markers,
+    /// every occurrence, across all versions) plus orphan fragments. Deletes the
+    /// file if nothing meaningful remains (only whitespace/comments/empty
+    /// sections — an empty [wsl2] is harmless but pointless to keep). Returns a
+    /// description of any non-BasaPOS content left behind ("" if clean) so
+    /// callers can warn.
+    public static string RemoveManagedBlock()
     {
-        if (!File.Exists(WslConfigPath)) return;
+        if (!File.Exists(WslConfigPath)) return "";
         var existing = File.ReadAllText(WslConfigPath);
         var cleaned = StripOrphanFragment(StripManagedBlock(existing));
-        if (cleaned.Trim().Length == 0) File.Delete(WslConfigPath);
-        else File.WriteAllText(WslConfigPath, cleaned);
+        if (!HasKeys(cleaned)) { try { File.Delete(WslConfigPath); } catch { } return ""; }
+        File.WriteAllText(WslConfigPath, cleaned);
+        return SummarizeLeftovers(cleaned);
     }
 
     internal static string StripManagedBlock(string content) =>
         System.Text.RegularExpressions.Regex.Replace(
-            content, Escape(Begin) + @".*?--- end BasaPOS ---\r?\n?", "",
-            System.Text.RegularExpressions.RegexOptions.Singleline);
+            content,
+            @"#\s*---\s*basapos\s*\(managed\)\s*---.*?---\s*end\s+basapos\s*---\r?\n?",
+            "",
+            System.Text.RegularExpressions.RegexOptions.Singleline
+            | System.Text.RegularExpressions.RegexOptions.IgnoreCase);
 
     internal static string StripOrphanFragment(string content) =>
         System.Text.RegularExpressions.Regex.Replace(
-            content, Escape(Begin) + @"(?s:.*)$", "",
-            System.Text.RegularExpressions.RegexOptions.None);
+            content,
+            @"#\s*---\s*basapos\s*\(managed\)\s*---(?s:.*)$",
+            "",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+    /// All non-blank, non-comment lines left in the file (including section
+    /// headers like [wsl2]) — i.e. foreign keys we did NOT touch.
+    internal static string SummarizeLeftovers(string content) =>
+        string.Join("\n", content.Split('\n')
+            .Select(l => l.Trim())
+            .Where(l => l.Length > 0 && !l.StartsWith("#")));
+
+    /// True if the content has any actual key=value lines (vs only
+    /// whitespace, comments, or bare section headers).
+    internal static bool HasKeys(string content) =>
+        content.Split('\n').Any(l => {
+            var t = l.Trim();
+            return t.Length > 0 && !t.StartsWith("#") && !t.StartsWith(";")
+                && !t.StartsWith("[") && t.Contains('=');
+        });
 
     static void WriteAtomic(string path, string content)
     {

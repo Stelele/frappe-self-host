@@ -87,6 +87,38 @@ public class InstallComponentsTests
     }
 
     [Fact]
+    public void WslConfig_strips_duplicate_blocks_case_insensitively()
+    {
+        // simulates an accumulated file: two managed blocks (one with edited
+        // marker case) plus foreign keys — uninstall must remove all OUR blocks
+        // and report the foreign remainder
+        var messy =
+            "# --- BasaPOS (managed) ---\n[wsl2]\nvmIdleTimeout=-1\nmemory=4GB\n# --- end BasaPOS ---\n" +
+            "[wsl2]\ninstanceIdleTimeout=60000\n" +
+            "# --- basapos (managed) ---\n[wsl2]\nvmidletimeout=-1\n# --- END basapos ---\n";
+        var cleaned = WslConfig.StripOrphanFragment(WslConfig.StripManagedBlock(messy));
+        Assert.DoesNotContain("managed", cleaned, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("vmIdleTimeout", cleaned, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("vmidletimeout", cleaned, StringComparison.OrdinalIgnoreCase);
+        var leftovers = WslConfig.SummarizeLeftovers(cleaned);
+        Assert.Contains("instanceIdleTimeout", leftovers); // foreign: reported, not deleted
+    }
+
+    [Fact]
+    public void WslConfig_summarize_ignores_blanks_comments_and_sections_alone()
+    {
+        // headers alone are reported (transparent) but count as "no keys"
+        // so RemoveManagedBlock deletes a file holding only them
+        Assert.Equal("[wsl2]", WslConfig.SummarizeLeftovers("# comment\n\n[wsl2]\n   \n"));
+        Assert.False(WslConfig.HasKeys("# comment\n\n[wsl2]\n"));
+        Assert.True(WslConfig.HasKeys("[wsl2]\nmemory=8GB\n"));
+        Assert.False(WslConfig.HasKeys("; semicolon comment\n[other]\n"));
+        var s = WslConfig.SummarizeLeftovers("[wsl2]\nmemory=8GB\n# note\n");
+        Assert.Contains("memory=8GB", s);
+        Assert.DoesNotContain("# note", s);
+    }
+
+    [Fact]
     public void StitchAndVerify_missing_sums_is_actionable()
     {
         var dir = Path.Combine(Path.GetTempPath(), "ns-" + Guid.NewGuid().ToString("N"));

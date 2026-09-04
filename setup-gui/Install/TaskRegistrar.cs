@@ -3,6 +3,9 @@ namespace BasaPOS.Setup.Install;
 public static class TaskRegistrar
 {
     public const string TaskName = "BasaPOS-Appliance";
+    // v2 (Inno/PS) resume task — v3 never creates it, but a machine upgraded
+    // from v2 may still have it. Uninstall removes both so no stale task lingers.
+    const string LegacyResumeTask = "BasaPOS-Setup-Resume";
 
     public static void Register()
     {
@@ -24,6 +27,11 @@ public static class TaskRegistrar
             throw new InvalidOperationException($"removing task time limit failed ({r2.ExitCode}): {r2.Error}");
     }
 
-    public static void Delete() =>
+    public static void Delete()
+    {
         WslRunner.RunAnsi("schtasks.exe", $"/delete /tn {TaskName} /f", 60);
+        // best-effort: v2 resume task (fails silently if absent — schtasks
+        // returns non-zero, no throw, since a missing task is the desired end state)
+        WslRunner.RunAnsi("schtasks.exe", $"/delete /tn {LegacyResumeTask} /f", 60);
+    }
 }

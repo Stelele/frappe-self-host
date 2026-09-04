@@ -9,8 +9,19 @@ public static class WslSetup
         {
             var probe = WslRunner.Wsl("--status", 30);
             if (probe.ExitCode == 0) { status("WSL: present"); return; }
+            // A broken .wslconfig (unknown/duplicate keys) makes every wsl.exe
+            // call fail — reinstalling the MSI cannot fix a config problem.
+            // Fail fast with guidance instead of a pointless repair cycle.
+            var combined = (probe.Output ?? "") + "\n" + (probe.Error ?? "");
+            if (combined.Contains(".wslconfig", StringComparison.OrdinalIgnoreCase)
+                && (combined.Contains("unknown key", StringComparison.OrdinalIgnoreCase)
+                    || combined.Contains("duplicated", StringComparison.OrdinalIgnoreCase)))
+                throw new InvalidOperationException(
+                    "Your .wslconfig file has an error and WSL refuses to run:\n" + combined.Trim() +
+                    "\nFix or delete %USERPROFILE%\\.wslconfig (or run BasaPOS Uninstall first), then re-run Setup.");
             status($"WSL present but unhealthy (exit {probe.ExitCode}) — repairing");
         }
+        catch (InvalidOperationException) { throw; }
         catch (Exception)
         {
             // wsl.exe missing or hung → full install path below
