@@ -8,6 +8,11 @@ public static class BootWrapper
 rem BasaPOS boot wrapper - starts appliance at logon and waits for health
 "%SystemRoot%\System32\wsl.exe" -d BasaPOS --exec /bin/true
 "%SystemRoot%\System32\wsl.exe" -d BasaPOS -u root --exec /sbin/hwclock -s 2>nul
+rem Hold a keeper session from the START (background) so the WSL2 VM never
+rem idles out - not even during a slow firstboot. vmIdleTimeout is ignored on
+rem some WSL builds; without an active client the VM shuts down ~60s after
+rem the last wsl.exe call, killing docker load / new-site mid-flight.
+start /b "%SystemRoot%\System32\wsl.exe" -d BasaPOS --exec /bin/sleep infinity
 set /a tries=0
 :wait
 "%SystemRoot%\System32\curl.exe" -sk -o nul https://basapos.local/api/method/ping
@@ -17,9 +22,8 @@ if %tries% geq 60 exit /b 1
 ping -n 11 127.0.0.1 >nul
 goto wait
 :hold
-rem Hold one persistent wsl.exe session so the WSL2 VM never idles out.
-rem (vmIdleTimeout is ignored on some WSL builds; without this the VM shuts
-rem down ~60s after the last client and the site goes dark until next logon.)
+rem Foreground keeper takes over (the background one is redundant but harmless).
+rem The task stays Running indefinitely, holding the VM open.
 "%SystemRoot%\System32\wsl.exe" -d BasaPOS --exec /bin/sleep infinity
 ping -n 6 127.0.0.1 >nul
 goto :hold

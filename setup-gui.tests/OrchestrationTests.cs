@@ -18,6 +18,9 @@ public class OrchestrationTests
         Assert.Contains("goto :hold", s);
         Assert.Contains("--exec /bin/sleep infinity", s);
         Assert.DoesNotContain("if %errorlevel%==0 exit /b 0", s); // must NOT exit on healthy
+        // keeper starts BEFORE the wait loop (background), so slow firstboot
+        // can't idle-shut the VM mid-docker-load/new-site
+        Assert.Contains("start /b", s);
     }
 
     [Fact]

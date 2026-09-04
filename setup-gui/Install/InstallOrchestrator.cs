@@ -69,6 +69,11 @@ public sealed class InstallOrchestrator(ISetupUi ui)
 
         ui.Status("Trusting certificate...");                             // 9
         var cert = Path.Combine(Paths.ConfigDir, "basapos.crt");
+        // Reconcile first: prior installs/runs may have left STALE basapos certs
+        // (each firstboot generates a unique CN), and a timed-out/crashed install
+        // may never have imported the current one. Remove all, trust current —
+        // so the store holds exactly what traefik serves.
+        CertTrust.UntrustAllBasaPOS();
         if (File.Exists(cert)) CertTrust.Trust(cert);
 
         File.WriteAllText(Path.Combine(Paths.ConfigDir, "version.txt"), VersionFor(payload) + "\n");
