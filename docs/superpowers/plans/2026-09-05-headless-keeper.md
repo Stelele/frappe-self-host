@@ -785,9 +785,16 @@ git add setup-gui/Install/KeeperProcess.cs setup-gui/Install/Paths.cs setup-gui/
 [Fact]
 public void ShortcutCreator_paths_and_icon()
 {
+    // NOTE: StartMenuLink/DesktopLink resolve OS folders (empty on Linux
+    // shells), so folder-dependent EndsWith asserts are Windows-only. The
+    // join logic itself is tested OS-independently via JoinLink.
     Assert.Equal("BasaPOS.lnk", ShortcutCreator.LinkName);
-    Assert.EndsWith(@"Programs\BasaPOS.lnk", ShortcutCreator.StartMenuLink);
-    Assert.EndsWith(@"Desktop\BasaPOS.lnk", ShortcutCreator.DesktopLink);
+    Assert.Equal(@"C:\SM\Programs\BasaPOS.lnk",
+        ShortcutCreator.JoinLink(@"C:\SM", "Programs", "BasaPOS.lnk"));
+    Assert.Equal(@"C:\DT\BasaPOS.lnk",
+        ShortcutCreator.JoinLink(@"C:\DT", "BasaPOS.lnk"));
+    Assert.EndsWith("BasaPOS.lnk", ShortcutCreator.StartMenuLink);
+    Assert.EndsWith("BasaPOS.lnk", ShortcutCreator.DesktopLink);
     Assert.Equal(Path.Combine(Paths.BinDir, "basapos.ico"), ShortcutCreator.IconPath);
 }
 
@@ -827,9 +834,12 @@ namespace BasaPOS.Setup.Install;
 public static class ShortcutCreator
 {
     public const string LinkName = "BasaPOS.lnk";
-    public static string StartMenuLink => Path.Combine(
+    // Hard `\` join (NOT Path.Combine): correct on Windows (the only
+    // runtime) AND testable on Linux (folder may resolve empty there).
+    internal static string JoinLink(params string[] parts) => string.Join("\\", parts);
+    public static string StartMenuLink => JoinLink(
         Environment.GetFolderPath(Environment.SpecialFolder.CommonStartMenu), "Programs", LinkName);
-    public static string DesktopLink => Path.Combine(
+    public static string DesktopLink => JoinLink(
         Environment.GetFolderPath(Environment.SpecialFolder.CommonDesktopDirectory), LinkName);
     public static string IconPath => Path.Combine(Paths.BinDir, "basapos.ico");
 
@@ -869,6 +879,10 @@ public static class ShortcutCreator
         "Packages", "Microsoft.WindowsTerminal_8wekyb3d8bbwe",
         "LocalState", "settings.json");
 
+    // Serialized INDENTED (not ToJsonString() compact): settings.json is
+    // human-edited, and the spaced `"hidden": true` form is asserted.
+    static readonly JsonSerializerOptions Indented = new() { WriteIndented = true };
+
     internal static string HideProfileJson(string json)
     {
         var root = JsonNode.Parse(json) ?? new JsonObject();
@@ -876,7 +890,7 @@ public static class ShortcutCreator
         if (list is null) return json;
         if (!list.Any(n => n?["name"]?.GetValue<string>() == "BasaPOS"))
             list.Add(new JsonObject { ["name"] = "BasaPOS", ["hidden"] = true });
-        return root.ToJsonString();
+        return root.ToJsonString(Indented);
     }
 
     internal static string UnhideProfileJson(string json)
@@ -889,7 +903,7 @@ public static class ShortcutCreator
                 && o["name"]?.GetValue<string>() == "BasaPOS"
                 && o["hidden"]?.GetValue<bool>() == true)
                 list.RemoveAt(i);
-        return root!.ToJsonString();
+        return root!.ToJsonString(Indented);
     }
 
     static void HideTerminalProfile()
