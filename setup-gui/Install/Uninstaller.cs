@@ -2,34 +2,38 @@ namespace BasaPOS.Setup.Install;
 
 public sealed class Uninstaller(ISetupUi ui)
 {
-    public void Run() => Run(keepBackups: true);
+    public void Run() => Run(keepBackups: true, purge: false);
 
-    public void Run(bool keepBackups)
+    public void Run(bool keepBackups) => Run(keepBackups, purge: false);
+
+    /// <param name="keepBackups">preserve C:\BasaPOS\backups (and v2 backups)</param>
+    /// <param name="purge">also unregister ALL WSL distros (not just BasaPOS)
+    /// and delete the entire .wslconfig (backed up first). Opt-in blank slate
+    /// for test machines — never the default.</param>
+    public void Run(bool keepBackups, bool purge)
     {
         ui.Status("Unregistering distro...");
-        WslRunner.Wsl($"--unregister {Paths.DistroName}", 300);
-        if (Detect.IsInstalled())
-        {
-            // real failure (not mere absence): WSL busy or AV lock on ext4.vhdx —
-            // deleting C:\BasaPOS now would half-remove and leave a locked vhdx
-            ui.Status("Unregister incomplete — retrying after wsl --shutdown...");
-            WslRunner.Wsl("--shutdown", 120);
-            WslRunner.Wsl($"--unregister {Paths.DistroName}", 300);
-        }
-        if (Detect.IsInstalled())
-            throw new InvalidOperationException(
-                "Could not unregister the BasaPOS distro (WSL busy or antivirus lock). " +
-                "Reboot the machine and run Uninstall again.");
+        UnregisterBasaPOS();
+        if (purge)
+            PurgeAllDistros();
         ui.Status("Removing autostart task...");
         TaskRegistrar.Delete();
         BootWrapper.Delete();
         ui.Status("Removing hosts entry...");
         HostsFile.Remove();
-        ui.Status("Removing .wslconfig keys...");
-        var leftovers = WslConfig.RemoveManagedBlock();
-        if (!string.IsNullOrEmpty(leftovers))
-            ui.Status("NOTE: .wslconfig still contains non-BasaPOS keys left untouched:\n" + leftovers +
-                      "\nIf WSL reports config errors, delete or fix %USERPROFILE%\\.wslconfig manually.");
+        if (purge)
+        {
+            ui.Status("Purge: removing entire .wslconfig (backed up)...");
+            PurgeWslConfig(ui);
+        }
+        else
+        {
+            ui.Status("Removing .wslconfig keys...");
+            var leftovers = WslConfig.RemoveManagedBlock();
+            if (!string.IsNullOrEmpty(leftovers))
+                ui.Status("NOTE: .wslconfig still contains non-BasaPOS keys left untouched:\n" + leftovers +
+                          "\nIf WSL reports config errors, delete or fix %USERPROFILE%\\.wslconfig manually.");
+        }
         ui.Status("Removing v2 install dir (if present)...");
         RemoveLegacyV2Dir(ui, keepBackups);
         ui.Status("Untrusting certificate...");
@@ -76,5 +80,83 @@ public sealed class Uninstaller(ISetupUi ui)
         }
         Directory.Delete(v2dir, recursive: true);
         ui.Status("Removed legacy v2 install dir.");
+    }
+
+    /// Unregisters BasaPOS plus any name-variant (e.g. partial states), with
+    /// shutdown-retry. Strict: throws if BasaPOS itself survives.
+    void UnregisterBasaPOS()
+    {
+        var targets = WslRunner.ListDistros()
+            .Where(d => d.Equals(Paths.DistroName, StringComparison.OrdinalIgnoreCase)
+                     || d.Contains("basapos", StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        if (targets.Count == 0)
+        {
+            // fall back to direct unregister (covers vhdx-present-but-unlisted edge)
+            WslRunner.Wsl($"--unregister {Paths.DistroName}", 300);
+        }
+        else foreach (var name in targets)
+        {
+            if (!name.Equals(Paths.DistroName, StringComparison.OrdinalIgnoreCase))
+                ui.Status($"Removing variant distro: {name}");
+            WslRunner.Wsl($"--unregister \"{name}\"", 300);
+        }
+        if (Detect.IsInstalled())
+        {
+            // real failure (not mere absence): WSL busy or AV lock on ext4.vhdx —
+            // deleting C:\BasaPOS now would half-remove and leave a locked vhdx
+            ui.Status("Unregister incomplete — retrying after wsl --shutdown...");
+            WslRunner.Wsl("--shutdown", 120);
+            WslRunner.Wsl($"--unregister \"{Paths.DistroName}\"", 300);
+        }
+        if (Detect.IsInstalled())
+            throw new InvalidOperationException(
+                "Could not unregister the BasaPOS distro (WSL busy or antivirus lock). " +
+                "Reboot the machine and run Uninstall again.");
+    }
+
+    /// Purge mode: unregister EVERY distro (best-effort per distro, strict only
+    /// for BasaPOS which UnregisterBasaPOS already handled). Collect failures
+    /// and report — one stuck foreign distro must not abort the whole purge.
+    void PurgeAllDistros()
+    {
+        WslRunner.Wsl("--shutdown", 120);
+        var failures = new List<string>();
+        foreach (var name in WslRunner.ListDistros())
+        {
+            try
+            {
+                WslRunner.Wsl($"--unregister \"{name}\"", 300);
+                ui.Status($"Purged distro: {name}");
+            }
+            catch (Exception ex)
+            {
+                failures.Add($"{name} ({ex.Message})");
+            }
+        }
+        // re-check BasaPOS specifically (strict); others are best-effort
+        if (Detect.IsInstalled())
+            throw new InvalidOperationException(
+                "Purge could not remove the BasaPOS distro. Reboot and run Uninstall again.");
+        if (failures.Count > 0)
+            ui.Status("NOTE: these distros could not be purged (left in place):\n" +
+                      string.Join("\n", failures));
+    }
+
+    /// Purge mode: back up .wslconfig then delete it entirely.
+    static void PurgeWslConfig(ISetupUi ui)
+    {
+        var path = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".wslconfig");
+        if (!File.Exists(path)) return;
+        var bak = path + ".basapos-bak";
+        try { File.Copy(path, bak, overwrite: true); }
+        catch (Exception ex)
+        {
+            ui.Status($"WARNING: could not back up .wslconfig ({ex.Message}) — leaving it in place.");
+            return;
+        }
+        File.Delete(path);
+        ui.Status($"Deleted .wslconfig entirely (backup at {bak}).");
     }
 }

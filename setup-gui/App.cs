@@ -4,7 +4,9 @@ namespace BasaPOS.Setup;
 
 public static class App
 {
-    /// Unattended entry: --install / --uninstall [--unattended] [--payload DIR]
+    /// Unattended entry: --install / --uninstall [--unattended] [--payload DIR] [--purge]
+    /// --purge (uninstall only): also unregister ALL WSL distros and delete the
+    /// entire .wslconfig (backed up). Opt-in blank slate for test machines.
     /// Exit codes: 0 ok · 1 fatal · 3 install finished but never healthy · 4 reboot required
     public static int RunUnattended(bool install, string[] args)
     {
@@ -37,7 +39,7 @@ public static class App
                 if (ui.RebootNeeded) return 4;
                 return ui.Healthy ? 0 : 3;
             }
-            new Uninstaller(ui).Run(keepBackups: true);
+            new Uninstaller(ui).Run(keepBackups: true, purge: args.Contains("--purge"));
             return 0;
         }
         catch (Exception ex)

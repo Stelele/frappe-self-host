@@ -130,6 +130,15 @@ public class InstallComponentsTests
     }
 
     [Fact]
+    public void ParseDistroList_handles_utf16_artifacts_and_blanks()
+    {
+        var d = WslRunner.ParseDistroList("Ubuntu\r\nBasaPOS\r\n\r\ndocker-desktop\r\n");
+        Assert.Equal(new[] { "Ubuntu", "BasaPOS", "docker-desktop" }, d);
+        Assert.Empty(WslRunner.ParseDistroList(""));
+        Assert.Empty(WslRunner.ParseDistroList("\r\n  \n"));
+    }
+
+    [Fact]
     public void PasswordGen_excludes_ambiguous_chars()
     {
         var rng = new Random(1);

@@ -12,6 +12,7 @@ public sealed class MainForm : Form, ISetupUi
     readonly Button _btnInstall = new() { Text = "Install", AutoSize = true };
     readonly Button _btnUninstall = new() { Text = "Uninstall", AutoSize = true };
     readonly Button _btnOpen = new() { Text = "Open BasaPOS", AutoSize = true };
+    readonly CheckBox _chkPurge = new() { Text = "Purge all WSL distros", AutoSize = true };
     bool _busy;
 
 #pragma warning disable WFO1000
@@ -25,6 +26,7 @@ public sealed class MainForm : Form, ISetupUi
         Controls.Add(_status); Controls.Add(_progress); Controls.Add(_buttons);
         _buttons.Controls.Add(_btnInstall);
         _buttons.Controls.Add(_btnUninstall);
+        _buttons.Controls.Add(_chkPurge);
         _buttons.Controls.Add(_btnOpen);
         _btnInstall.Click += async (_, _) => await RunBusy(() =>
         {
@@ -35,7 +37,19 @@ public sealed class MainForm : Form, ISetupUi
             }
             new InstallOrchestrator(this).RunAll();
         });
-        _btnUninstall.Click += async (_, _) => await RunBusy(() => new Uninstaller(this).Run());
+        _btnUninstall.Click += async (_, _) => await RunBusy(() =>
+        {
+            if (_chkPurge.Checked)
+            {
+                var confirm = MessageBox.Show(
+                    "Purge will unregister ALL WSL distributions on this machine " +
+                    "(including non-BasaPOS ones like Ubuntu) and delete the entire " +
+                    ".wslconfig (backed up first). Continue?",
+                    "Confirm purge", MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
+                if (confirm != DialogResult.Yes) return;
+            }
+            new Uninstaller(this).Run(purge: _chkPurge.Checked);
+        });
         _btnOpen.Click += (_, _) =>
             Process.Start(new ProcessStartInfo(Paths.SiteUrl) { UseShellExecute = true });
         Shown += (_, _) => RefreshState();

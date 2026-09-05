@@ -24,6 +24,27 @@ public static class WslRunner
         Action<string>? onLine = null)
         => Run(Environment.SystemDirectory + @"\wsl.exe", arguments, timeoutSeconds, onLine);
 
+    /// Lists installed WSL distro names (one per line from `wsl --list --quiet`).
+    /// Returns empty (never throws) when wsl.exe is missing — no distros to remove.
+    public static IReadOnlyList<string> ListDistros()
+    {
+        try
+        {
+            var r = Wsl("--list --quiet", 30);
+            return ParseDistroList(r.Output);
+        }
+        catch
+        {
+            return Array.Empty<string>();
+        }
+    }
+
+    internal static IReadOnlyList<string> ParseDistroList(string output) =>
+        output.Split('\n')
+            .Select(l => l.Trim().TrimEnd('\r'))
+            .Where(l => l.Length > 0)
+            .ToList();
+
     static ProcResult RunCore(string fileName, string arguments, int timeoutSeconds,
         Encoding outputEncoding, Action<string>? onLine)
     {
