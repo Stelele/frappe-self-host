@@ -73,11 +73,17 @@ public class KeeperLoopTests
     [Fact]
     public void Transient_exit_respawns_with_backoff_not_fatal()
     {
+        // DETERMINISTIC: the fake sleep cancels after 2 recorded sleeps.
+        // (A record-only sleep never delays, so a wall-clock CTS lets the
+        // loop spin unboundedly — SpawnCount would be nondeterministic.)
+        using var cts = new CancellationTokenSource();
         var r = new FakeRunner();
         r.Children.Enqueue(new FakeChild(1, "transient hcs error"));
         r.Children.Enqueue(new FakeChild(0));
-        var (loop, _, sleeps) = Make(r);
-        using var cts = new CancellationTokenSource(500);
+        var sleeps = new List<TimeSpan>();
+        var loop = new KeeperLoop(r, new FakeProbe(true),
+            ts => { sleeps.Add(ts); if (sleeps.Count >= 2) cts.Cancel(); },
+            _ => { }, () => DateTime.UtcNow);
         loop.Run(cts.Token); // cancelled, not fatal
         Assert.Contains(sleeps, s => s == TimeSpan.FromSeconds(5));
         Assert.Equal(2, r.SpawnCount);
