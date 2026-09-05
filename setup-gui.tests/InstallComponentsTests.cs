@@ -168,4 +168,30 @@ public class InstallComponentsTests
             foreach (var c in "0O1lI") Assert.DoesNotContain(c, pw.ToString());
         }
     }
+
+    [Fact]
+    public void TaskRegistrar_script_stops_old_tasks_and_registers_two_triggers()
+    {
+        var s = TaskRegistrar.BuildRegisterScript("tech", @"C:\BasaPOS\bin\BasaPOS.Keeper.exe");
+        Assert.Contains("Stop-ScheduledTask -TaskName 'BasaPOS-Appliance'", s);
+        Assert.Contains("Stop-ScheduledTask -TaskName 'BasaPOS-Keeper'", s);
+        Assert.Contains("Unregister-ScheduledTask -TaskName 'BasaPOS-Appliance'", s);
+        Assert.Contains("New-ScheduledTaskTrigger -AtLogOn", s);
+        Assert.Contains("RepetitionInterval", s);
+        Assert.Contains("New-TimeSpan -Minutes 5", s);
+        Assert.Contains("IgnoreNew", s);
+        Assert.Contains(@"C:\BasaPOS\bin\BasaPOS.Keeper.exe", s);
+        Assert.Contains("Start-ScheduledTask -TaskName 'BasaPOS-Keeper'", s);
+    }
+
+    [Fact]
+    public void TaskRegistrar_delete_stops_all_tasks_before_deleting()
+    {
+        var s = TaskRegistrar.BuildDeleteScript();
+        Assert.Contains("Stop-ScheduledTask -TaskName 'BasaPOS-Appliance'", s);
+        Assert.Contains("Stop-ScheduledTask -TaskName 'BasaPOS-Keeper'", s);
+        Assert.Contains("Stop-ScheduledTask -TaskName 'BasaPOS-Setup-Resume'", s);
+        Assert.True(s.StartsWith("$ErrorActionPreference='Stop';"),
+            "delete must run as a single stop-then-delete unit");
+    }
 }
