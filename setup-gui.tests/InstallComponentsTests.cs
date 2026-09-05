@@ -232,21 +232,27 @@ public class InstallComponentsTests
     }
 
     [Fact]
-    public void TerminalHide_adds_and_removes_only_our_entry()
+    public void TerminalHide_manages_wsl_source_entry()
     {
+        // Mechanism: disabledProfileSources += Windows.Terminal.Wsl (name-keyed
+        // hidden:true does NOT hide GUID-matched dynamic profiles).
         var empty = """{"profiles":{"list":[]}}""";
         var hidden = ShortcutCreator.HideProfileJson(empty);
-        Assert.Contains("\"hidden\": true", hidden);
-        Assert.Contains("BasaPOS", hidden);
-        // idempotent: hiding twice adds one entry
-        Assert.Equal(hidden, ShortcutCreator.HideProfileJson(hidden));
-        // unhide removes exactly our shape, keeps user entries
-        var withUser = """{"profiles":{"list":[{"name":"BasaPOS","hidden":true},{"name":"Ubuntu","fontSize":14}]}}""";
-        var restored = ShortcutCreator.UnhideProfileJson(withUser);
-        Assert.DoesNotContain("BasaPOS", restored);
-        Assert.Contains("Ubuntu", restored);
-        // unhide never touches a user-customized BasaPOS entry (extra keys)
-        var custom = """{"profiles":{"list":[{"name":"BasaPOS","hidden":true,"fontSize":16}]}}""";
-        Assert.Contains("fontSize", ShortcutCreator.UnhideProfileJson(custom));
+        Assert.Contains("Windows.Terminal.Wsl", hidden);
+        Assert.Contains("disabledProfileSources", hidden);
+        Assert.Equal(hidden, ShortcutCreator.HideProfileJson(hidden)); // idempotent
+        var restored = ShortcutCreator.UnhideProfileJson(hidden);
+        Assert.DoesNotContain("Windows.Terminal.Wsl", restored);
+        // stock Terminal settings.json is JSONC (comments, trailing commas)
+        var jsonc = "// terminal settings\n{\"profiles\":{\"list\":[]},}";
+        Assert.Contains("Windows.Terminal.Wsl", ShortcutCreator.HideProfileJson(jsonc));
+        // unhide returns the ORIGINAL string when nothing to remove (no gratuitous rewrite)
+        var clean = """{"disabledProfileSources":["Windows.Terminal.Azure"]}""";
+        Assert.Equal(clean, ShortcutCreator.UnhideProfileJson(clean));
+        // keeps other sources, removes only ours
+        var multi = """{"disabledProfileSources":["Windows.Terminal.Wsl","Windows.Terminal.Azure"]}""";
+        var r2 = ShortcutCreator.UnhideProfileJson(multi);
+        Assert.DoesNotContain("Windows.Terminal.Wsl", r2);
+        Assert.Contains("Windows.Terminal.Azure", r2);
     }
 }
