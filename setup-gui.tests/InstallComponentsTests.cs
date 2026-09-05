@@ -214,4 +214,32 @@ public class InstallComponentsTests
         Assert.False(KeeperProcess.PathMatches(null, KeeperProcess.ExePath));
         Assert.Equal(@"C:\BasaPOS\bin\BasaPOS.Keeper.exe", KeeperProcess.ExePath);
     }
+
+    [Fact]
+    public void ShortcutCreator_paths_and_icon()
+    {
+        Assert.Equal("BasaPOS.lnk", ShortcutCreator.LinkName);
+        Assert.EndsWith(@"Programs\BasaPOS.lnk", ShortcutCreator.StartMenuLink);
+        Assert.EndsWith(@"Desktop\BasaPOS.lnk", ShortcutCreator.DesktopLink);
+        Assert.Equal(Path.Combine(Paths.BinDir, "basapos.ico"), ShortcutCreator.IconPath);
+    }
+
+    [Fact]
+    public void TerminalHide_adds_and_removes_only_our_entry()
+    {
+        var empty = """{"profiles":{"list":[]}}""";
+        var hidden = ShortcutCreator.HideProfileJson(empty);
+        Assert.Contains("\"hidden\": true", hidden);
+        Assert.Contains("BasaPOS", hidden);
+        // idempotent: hiding twice adds one entry
+        Assert.Equal(hidden, ShortcutCreator.HideProfileJson(hidden));
+        // unhide removes exactly our shape, keeps user entries
+        var withUser = """{"profiles":{"list":[{"name":"BasaPOS","hidden":true},{"name":"Ubuntu","fontSize":14}]}}""";
+        var restored = ShortcutCreator.UnhideProfileJson(withUser);
+        Assert.DoesNotContain("BasaPOS", restored);
+        Assert.Contains("Ubuntu", restored);
+        // unhide never touches a user-customized BasaPOS entry (extra keys)
+        var custom = """{"profiles":{"list":[{"name":"BasaPOS","hidden":true,"fontSize":16}]}}""";
+        Assert.Contains("fontSize", ShortcutCreator.UnhideProfileJson(custom));
+    }
 }

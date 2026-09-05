@@ -16,6 +16,7 @@ public sealed class Uninstaller(ISetupUi ui)
         TaskRegistrar.Delete();                       // stops instances, then deletes all 3 names
         ui.Status("Killing keeper process...");
         KeeperProcess.KillAll();
+        ShortcutCreator.Remove();
         ui.Status("Shutting down WSL...");
         ui.Status("NOTE: this briefly stops ALL WSL distros (including unrelated ones like docker-desktop).");
         try { WslRunner.Wsl("--shutdown", 120); } catch { }
