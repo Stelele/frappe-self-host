@@ -48,7 +48,12 @@ public sealed class ProcessRunner : IProcessRunner
             };
             using var p = Process.Start(psi) ?? throw new InvalidOperationException("failed to start wsl.exe");
             var outTask = p.StandardOutput.ReadToEndAsync();
-            if (!p.WaitForExit(30_000)) { try { p.Kill(true); } catch { } return Array.Empty<string>(); }
+            if (!p.WaitForExit(30_000))
+            {
+                outTask.ContinueWith(t => { var _ = t.Exception; }, TaskContinuationOptions.OnlyOnFaulted);
+                try { p.Kill(true); } catch { }
+                return Array.Empty<string>();
+            }
             p.WaitForExit(); // flush async read
             return ParseDistroNames(outTask.Result);
         }
@@ -67,6 +72,7 @@ sealed class WslChild : IChildProcess
         this.process = process;
         this.job = job;
         _stderrTask = process.StandardError.ReadToEndAsync();
+        _stderrTask.ContinueWith(t => { var _ = t.Exception; }, TaskContinuationOptions.OnlyOnFaulted);
     }
 
     public int Pid { get { try { return process.Id; } catch { return -1; } } }
@@ -79,7 +85,11 @@ sealed class WslChild : IChildProcess
         {
             try
             {
-                if (!_stderrTask.IsCompleted) return "";
+                if (!_stderrTask.IsCompleted && Exited())
+            {
+                try { _stderrTask.Wait(500); } catch { }
+            }
+            if (!_stderrTask.IsCompleted) return "";
                 var s = _stderrTask.Result;
                 return s.Length <= 2048 ? s : s[^2048..];
             }
@@ -151,12 +161,8 @@ static class JobObject
 
     public static void Assign(IntPtr job, Process p)
     {
-        try
-        {
-            if (!AssignProcessToJobObject(job, p.Handle))
-                throw new InvalidOperationException("AssignProcessToJobObject failed");
-        }
-        catch { CloseHandle(job); throw; }
+        if (!AssignProcessToJobObject(job, p.Handle))
+            throw new InvalidOperationException("AssignProcessToJobObject failed");
     }
 
     public static void Close(IntPtr job) { try { if (job != IntPtr.Zero) CloseHandle(job); } catch { } }
