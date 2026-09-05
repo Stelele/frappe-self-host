@@ -23,9 +23,14 @@ public sealed class ProcessRunner : IProcessRunner
             RedirectStandardError = true, // stdout NOT redirected: sleep writes nothing; avoids pipe stall
         };
         var p = Process.Start(psi) ?? throw new InvalidOperationException("failed to start wsl.exe");
-        var job = JobObject.CreateKillOnClose();
-        JobObject.Assign(job, p);
-        return new WslChild(p, job);
+        try
+        {
+            var job = JobObject.CreateKillOnClose();
+            try { JobObject.Assign(job, p); }
+            catch { JobObject.Close(job); throw; }
+            return new WslChild(p, job);
+        }
+        catch { try { p.Kill(true); } catch { } p.Dispose(); throw; }
     }
 
     public IReadOnlyList<string> ListDistros()
@@ -42,40 +47,50 @@ public sealed class ProcessRunner : IProcessRunner
                 StandardOutputEncoding = Encoding.Unicode, // wsl.exe emits UTF-16
             };
             using var p = Process.Start(psi) ?? throw new InvalidOperationException("failed to start wsl.exe");
-            var output = p.StandardOutput.ReadToEnd();
+            var outTask = p.StandardOutput.ReadToEndAsync();
             if (!p.WaitForExit(30_000)) { try { p.Kill(true); } catch { } return Array.Empty<string>(); }
-            return ParseDistroNames(output);
+            p.WaitForExit(); // flush async read
+            return ParseDistroNames(outTask.Result);
         }
         catch { return Array.Empty<string>(); } // never throw: absence of data ≠ absence of distro is handled by retry logic
     }
 }
 
-sealed class WslChild(Process process, IntPtr job) : IChildProcess
+sealed class WslChild : IChildProcess
 {
-    readonly StringBuilder _stderr = new();
-    bool _drained;
+    readonly Process process;
+    readonly IntPtr job;
+    readonly Task<string> _stderrTask;
+
+    public WslChild(Process process, IntPtr job)
+    {
+        this.process = process;
+        this.job = job;
+        _stderrTask = process.StandardError.ReadToEndAsync();
+    }
+
     public int Pid { get { try { return process.Id; } catch { return -1; } } }
 
     public int ExitCode { get { try { return process.HasExited ? process.ExitCode : -1; } catch { return -1; } } }
 
-    public string StderrTail { get { Drain(); lock (_stderr) return _stderr.Length <= 2048 ? _stderr.ToString() : _stderr.ToString()[^2048..]; } }
+    public string StderrTail
+    {
+        get
+        {
+            try
+            {
+                if (!_stderrTask.IsCompleted) return "";
+                var s = _stderrTask.Result;
+                return s.Length <= 2048 ? s : s[^2048..];
+            }
+            catch { return ""; }
+        }
+    }
+
     public bool Exited() { try { return process.HasExited; } catch { return true; } }
     public int WaitForExit(int msTimeout) { try { return process.WaitForExit(msTimeout) ? 0 : 1; } catch { return 0; } }
     public void KillTree() { try { process.Kill(true); } catch { } }
     public void Dispose() { try { process.Dispose(); } catch { } try { JobObject.Close(job); } catch { } }
-
-    void Drain()
-    {
-        if (_drained) return; _drained = true;
-        try
-        {
-            // child is long-lived; read whatever stderr has arrived WITHOUT blocking:
-            // poll in small slices only while data is available
-            while (process.StandardError.Peek() > -1 && _stderr.Length < 4096)
-                _stderr.Append((char)process.StandardError.Read());
-        }
-        catch { }
-    }
 }
 
 static class JobObject
@@ -87,7 +102,7 @@ static class JobObject
     struct JOBOBJECT_BASIC_LIMIT_INFORMATION
     {
         public long PerProcessUserTimeLimit;
-        public long JobMemoryLimit;
+        public long PerJobUserTimeLimit;
         public int LimitFlags;
         public UIntPtr MinimumWorkingSetSize;
         public UIntPtr MaximumWorkingSetSize;
