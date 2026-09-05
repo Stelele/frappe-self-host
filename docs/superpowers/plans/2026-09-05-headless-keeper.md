@@ -675,6 +675,8 @@ public void KeeperProcess_path_match_is_exact_case_insensitive()
 {
     Assert.True(KeeperProcess.PathMatches(@"C:\BasaPOS\bin\BasaPOS.Keeper.exe", KeeperProcess.ExePath));
     Assert.True(KeeperProcess.PathMatches(@"c:\basapos\BIN\basapos.keeper.exe", KeeperProcess.ExePath));
+    Assert.True(KeeperProcess.PathMatches(@"C:/BasaPOS/bin/BasaPOS.Keeper.exe", KeeperProcess.ExePath)); // mixed separators
+    Assert.True(KeeperProcess.PathMatches(@"C:\BasaPOS\bin\BasaPOS.Keeper.exe\", KeeperProcess.ExePath)); // trailing slash
     Assert.False(KeeperProcess.PathMatches(@"C:\BasaPOS\bin\other.exe", KeeperProcess.ExePath));
     Assert.False(KeeperProcess.PathMatches(null, KeeperProcess.ExePath));
     Assert.Equal(@"C:\BasaPOS\bin\BasaPOS.Keeper.exe", KeeperProcess.ExePath);
@@ -697,22 +699,39 @@ namespace BasaPOS.Setup.Install;
 /// matches by name only and could hit an unrelated process).
 internal static class KeeperProcess
 {
-    public static string ExePath => Path.Combine(Paths.BinDir, "BasaPOS.Keeper.exe");
+    public static string ExePath =>
+        Path.Combine(Paths.BinDir, "BasaPOS.Keeper.exe").Replace(Path.DirectorySeparatorChar, '\\');
 
+    // Normalizes separators so the Linux-CI build (forward slashes) tests
+    // the same contract; identity transformation on Windows.
     internal static bool PathMatches(string? actual, string expected) =>
-        string.Equals(actual?.Trim().TrimEnd('\\'), expected.Trim().TrimEnd('\\'),
-            StringComparison.OrdinalIgnoreCase);
+        string.Equals(Normalize(actual), Normalize(expected), StringComparison.OrdinalIgnoreCase);
 
+    static string? Normalize(string? p) => p?.Trim().TrimEnd('\\').Replace('\\', '/');
+
+    /// Kills all keeper instances and WAITS (bounded). Throws a clear,
+    /// actionable error if one survives — callers must fail BEFORE
+    /// irreversible uninstall steps, never delete bin/ under a live exe.
     public static void KillAll()
     {
         foreach (var p in Process.GetProcessesByName("BasaPOS.Keeper"))
         {
-            try
+            using (p)
             {
-                if (PathMatches(p.MainModule?.FileName, ExePath))
-                    p.Kill(entireProcessTree: true);
+                bool ours;
+                try { ours = PathMatches(p.MainModule?.FileName, ExePath); }
+                catch { ours = true; } // unreadable module of OUR unique name → assume ours
+                if (!ours) continue;
+                try { if (!p.HasExited) p.Kill(entireProcessTree: true); } catch { /* already gone */ }
+                try
+                {
+                    if (!p.WaitForExit(5000) || !p.HasExited)
+                        throw new InvalidOperationException(
+                            "Could not stop the BasaPOS keeper process. Reboot the machine and run Uninstall again.");
+                }
+                catch (InvalidOperationException) { throw; }
+                catch { /* exited during wait — desired end state */ }
             }
-            catch { /* exited / access denied — desired end state anyway */ }
         }
     }
 }
@@ -729,6 +748,7 @@ KeeperProcess.KillAll();
 ShortcutCreator.Remove();                     // Task 8 — if implementing strictly in order,
                                               // call BootWrapper.Delete() here and add this line in Task 8
 ui.Status("Shutting down WSL...");
+ui.Status("NOTE: this briefly stops ALL WSL distros (including unrelated ones like docker-desktop).");
 try { WslRunner.Wsl("--shutdown", 120); } catch { }
 ui.Status("Unregistering distro...");
 UnregisterBasaPOS();
