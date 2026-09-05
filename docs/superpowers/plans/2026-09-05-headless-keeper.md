@@ -223,11 +223,17 @@ public class KeeperLoopTests
     [Fact]
     public void Transient_exit_respawns_with_backoff_not_fatal()
     {
+        // DETERMINISTIC: the fake sleep cancels after 2 recorded sleeps.
+        // (A record-only sleep never delays, so a wall-clock CTS lets the
+        // loop spin unboundedly — SpawnCount would be nondeterministic.)
+        using var cts = new CancellationTokenSource();
         var r = new FakeRunner();
         r.Children.Enqueue(new FakeChild(1, "transient hcs error"));
         r.Children.Enqueue(new FakeChild(0));
-        var (loop, _, sleeps) = Make(r);
-        using var cts = new CancellationTokenSource(500);
+        var sleeps = new List<TimeSpan>();
+        var loop = new KeeperLoop(r, new FakeProbe(true),
+            ts => { sleeps.Add(ts); if (sleeps.Count >= 2) cts.Cancel(); },
+            _ => { }, () => DateTime.UtcNow);
         loop.Run(cts.Token); // cancelled, not fatal
         Assert.Contains(sleeps, s => s == TimeSpan.FromSeconds(5));
         Assert.Equal(2, r.SpawnCount);
@@ -295,7 +301,7 @@ public sealed class KeeperLoop(
     public DateTime LastTick { get; private set; } = clock();
 
     internal static TimeSpan Backoff(int consecutiveFailures) =>
-        TimeSpan.FromSeconds(Math.Min(60, 5 * (1 << Math.Min(consecutiveFailures, 3))));
+        TimeSpan.FromSeconds(Math.Min(60, 5 * (1 << Math.Min(consecutiveFailures, 4))));
 
     internal static bool IsStale(DateTime lastTick, DateTime now) =>
         now - lastTick > TimeSpan.FromSeconds(120);
@@ -325,9 +331,9 @@ public sealed class KeeperLoop(
                 {
                     missingStreak++;
                     log($"keeper: distro not listed ({missingStreak}/6)");
+                    sleep(TimeSpan.FromSeconds(30));   // sleep BEFORE the fatal check: 6 sleeps, then throw
                     if (missingStreak >= 6)
                         throw new FatalKeeperException("Distro 'BasaPOS' missing after 6x30s retries — not transient.");
-                    sleep(TimeSpan.FromSeconds(30));
                     continue;
                 }
                 missingStreak = 0;
