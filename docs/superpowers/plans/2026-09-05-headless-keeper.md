@@ -114,7 +114,7 @@ git add payload/basapos.ico && git commit -m "assets: basapos.ico from site favi
          also compiles `internal` members into the test assembly, which
          Tasks 3-5 rely on. Mirrors BasaPOS-Setup.tests.csproj. Glob avoids
          per-file drift. -->
-    <Compile Include="..\keeper\**\*.cs" Exclude="..\keeper\Program.cs" Link="Keeper\%(RecursiveDir)%(Filename)%(Extension)" />
+    <Compile Include="..\keeper\**\*.cs" Exclude="..\keeper\Program.cs;..\keeper\obj\**\*.cs;..\keeper\bin\**\*.cs" Link="Keeper\%(RecursiveDir)%(Filename)%(Extension)" />
   </ItemGroup>
 </Project>
 ```
