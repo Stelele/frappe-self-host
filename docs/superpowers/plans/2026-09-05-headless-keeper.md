@@ -65,17 +65,11 @@ git add payload/basapos.ico && git commit -m "assets: basapos.ico from site favi
 
 ---
 
-### Task 2: Keeper project skeleton + loop + process runner (TDD)
+### Task 2: Keeper + test project scaffolding
 
 **Files:**
-- Create: `keeper/BasaPOS.Keeper.csproj`, `keeper/Program.cs`, `keeper/KeeperLoop.cs`, `keeper/Proc.cs`
-- Test: `keeper.tests/KeeperTests.cs` (created in Task 4; for THIS task, write the tests first in the same step sequence — the test project is created in Task 4, so Task 2 steps write `keeper/*.cs` sources only, then Task 4 wires tests. To keep TDD honest, Task 2 Step 1 writes the test code that Task 4's project will compile.)
-
-Actually — TDD order demands the test project first. So Task 2 creates BOTH projects (sources + failing tests), Task 3+ fills them. Restructured below.
-
-**Files:**
-- Create: `keeper/BasaPOS.Keeper.csproj`
-- Create: `keeper.tests/BasaPOS.Keeper.Tests.csproj`
+- Create: `keeper/BasaPOS.Keeper.csproj`, `keeper/Program.cs` (stub; real entry in Task 5)
+- Create: `keeper.tests/BasaPOS.Keeper.Tests.csproj` (source-linking, NOT ProjectReference)
 
 - [ ] **Step 1: Create the keeper csproj (self-contained WinExe, mirrors Setup's proven cross-build model)**
 
@@ -114,15 +108,31 @@ Actually — TDD order demands the test project first. So Task 2 creates BOTH pr
     <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="..\keeper\BasaPOS.Keeper.csproj" />
+    <!-- link keeper sources (NOT Program.cs: top-level statements would
+         collide with the test assembly entry point). A net10.0 test project
+         CANNOT ProjectReference a net10.0-windows WinExe (NU1201); linking
+         also compiles `internal` members into the test assembly, which
+         Tasks 3-5 rely on. Mirrors BasaPOS-Setup.tests.csproj. Glob avoids
+         per-file drift. -->
+    <Compile Include="..\keeper\**\*.cs" Exclude="..\keeper\Program.cs" Link="Keeper\%(RecursiveDir)%(Filename)%(Extension)" />
   </ItemGroup>
 </Project>
+```
+
+- [ ] **Step 2b: Create the stub entry point** — an empty WinExe does NOT
+  build (CS5001: no auto-generated Main). Add minimal `keeper/Program.cs`
+  now; Task 5 overwrites it with the real entry:
+
+```csharp
+// STUB — replaced by the real keeper entry point in Task 5.
+// Exists only so the empty WinExe project builds (CS5001 otherwise).
+return 0;
 ```
 
 - [ ] **Step 3: Commit**
 
 ```bash
-git add keeper/BasaPOS.Keeper.csproj keeper.tests/BasaPOS.Keeper.Tests.csproj && git commit -m "scaffold: BasaPOS.Keeper exe + test projects"
+git add keeper/BasaPOS.Keeper.csproj keeper.tests/BasaPOS.Keeper.Tests.csproj keeper/Program.cs && git commit -m "scaffold: BasaPOS.Keeper exe + test projects"
 ```
 
 ---
