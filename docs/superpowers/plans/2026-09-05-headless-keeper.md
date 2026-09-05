@@ -799,22 +799,28 @@ public void ShortcutCreator_paths_and_icon()
 }
 
 [Fact]
-public void TerminalHide_adds_and_removes_only_our_entry()
+public void TerminalHide_manages_wsl_source_entry()
 {
+    // Mechanism: disabledProfileSources += Windows.Terminal.Wsl (name-keyed
+    // hidden:true does NOT hide GUID-matched dynamic profiles).
     var empty = """{"profiles":{"list":[]}}""";
     var hidden = ShortcutCreator.HideProfileJson(empty);
-    Assert.Contains("\"hidden\": true", hidden);
-    Assert.Contains("BasaPOS", hidden);
-    // idempotent: hiding twice adds one entry
-    Assert.Equal(hidden, ShortcutCreator.HideProfileJson(hidden));
-    // unhide removes exactly our shape, keeps user entries
-    var withUser = """{"profiles":{"list":[{"name":"BasaPOS","hidden":true},{"name":"Ubuntu","fontSize":14}]}}""";
-    var restored = ShortcutCreator.UnhideProfileJson(withUser);
-    Assert.DoesNotContain("BasaPOS", restored);
-    Assert.Contains("Ubuntu", restored);
-    // unhide never touches a user-customized BasaPOS entry (extra keys)
-    var custom = """{"profiles":{"list":[{"name":"BasaPOS","hidden":true,"fontSize":16}]}}""";
-    Assert.Contains("fontSize", ShortcutCreator.UnhideProfileJson(custom));
+    Assert.Contains("Windows.Terminal.Wsl", hidden);
+    Assert.Contains("disabledProfileSources", hidden);
+    Assert.Equal(hidden, ShortcutCreator.HideProfileJson(hidden)); // idempotent
+    var restored = ShortcutCreator.UnhideProfileJson(hidden);
+    Assert.DoesNotContain("Windows.Terminal.Wsl", restored);
+    // stock Terminal settings.json is JSONC (comments, trailing commas)
+    var jsonc = "// terminal settings\n{\"profiles\":{\"list\":[]},}";
+    Assert.Contains("Windows.Terminal.Wsl", ShortcutCreator.HideProfileJson(jsonc));
+    // unhide returns the ORIGINAL string when nothing to remove (no gratuitous rewrite)
+    var clean = """{"disabledProfileSources":["Windows.Terminal.Azure"]}""";
+    Assert.Equal(clean, ShortcutCreator.UnhideProfileJson(clean));
+    // keeps other sources, removes only ours
+    var multi = """{"disabledProfileSources":["Windows.Terminal.Wsl","Windows.Terminal.Azure"]}""";
+    var r2 = ShortcutCreator.UnhideProfileJson(multi);
+    Assert.DoesNotContain("Windows.Terminal.Wsl", r2);
+    Assert.Contains("Windows.Terminal.Azure", r2);
 }
 ```
 
@@ -879,31 +885,60 @@ public static class ShortcutCreator
         "Packages", "Microsoft.WindowsTerminal_8wekyb3d8bbwe",
         "LocalState", "settings.json");
 
-    // Serialized INDENTED (not ToJsonString() compact): settings.json is
-    // human-edited, and the spaced `"hidden": true` form is asserted.
+    // Terminal WSL-source toggle. Mechanism: disabledProfileSources array
+    // (name-keyed hidden:true does NOT hide GUID-matched dynamic profiles).
+    // JSONC-tolerant (stock settings.json has // comments + trailing
+    // commas); returns the ORIGINAL string when nothing changes (never a
+    // gratuitous rewrite); callers write atomically (temp + move).
+    const string WslSource = "Windows.Terminal.Wsl";
     static readonly JsonSerializerOptions Indented = new() { WriteIndented = true };
+    static readonly JsonDocumentOptions Jsonc = new() { CommentHandling = JsonCommentHandling.Skip, AllowTrailingCommas = true };
+
+    static bool IsWslSource(JsonNode? n) =>
+        n is JsonValue v && v.TryGetValue<string>(out var s) && s == WslSource;
 
     internal static string HideProfileJson(string json)
     {
-        var root = JsonNode.Parse(json) ?? new JsonObject();
-        var list = root["profiles"]?["list"]?.AsArray();
-        if (list is null) return json;
-        if (!list.Any(n => n?["name"]?.GetValue<string>() == "BasaPOS"))
-            list.Add(new JsonObject { ["name"] = "BasaPOS", ["hidden"] = true });
-        return root.ToJsonString(Indented);
+        try
+        {
+            var root = JsonNode.Parse(json, null, Jsonc);
+            if (root is null) return json;
+            var arr = root["disabledProfileSources"]?.AsArray();
+            if (arr is null)
+            {
+                root["disabledProfileSources"] = new JsonArray(WslSource);
+                return root.ToJsonString(Indented);
+            }
+            if (arr.Any(IsWslSource)) return json; // already set — byte-identical no-op
+            arr.Add(WslSource);
+            return root.ToJsonString(Indented);
+        }
+        catch { return json; } // malformed — leave untouched
     }
 
     internal static string UnhideProfileJson(string json)
     {
-        var root = JsonNode.Parse(json);
-        var list = root?["profiles"]?["list"]?.AsArray();
-        if (list is null) return json;
-        for (int i = list.Count - 1; i >= 0; i--)
-            if (list[i] is JsonObject o && o.Count == 2
-                && o["name"]?.GetValue<string>() == "BasaPOS"
-                && o["hidden"]?.GetValue<bool>() == true)
-                list.RemoveAt(i);
-        return root!.ToJsonString(Indented);
+        try
+        {
+            var root = JsonNode.Parse(json, null, Jsonc);
+            var arr = root?["disabledProfileSources"]?.AsArray();
+            if (arr is null) return json;
+            bool removed = false;
+            for (int i = arr.Count - 1; i >= 0; i--)
+                if (IsWslSource(arr[i])) { arr.RemoveAt(i); removed = true; }
+            if (!removed) return json; // byte-identical no-op
+            return root!.ToJsonString(Indented);
+        }
+        catch { return json; }
+    }
+
+    // Atomic: temp file + move, so a crash/concurrent Terminal save
+    // cannot truncate the user's settings.
+    static void WriteAtomic(string path, string content)
+    {
+        var tmp = path + ".basapos.tmp";
+        File.WriteAllText(tmp, content);
+        File.Move(tmp, path, overwrite: true);
     }
 
     static void HideTerminalProfile()
@@ -912,7 +947,9 @@ public static class ShortcutCreator
         {
             var p = TerminalSettingsPath;
             if (!File.Exists(p)) return; // no Terminal — nothing to hide
-            File.WriteAllText(p, HideProfileJson(File.ReadAllText(p)));
+            var current = File.ReadAllText(p);
+            var updated = HideProfileJson(current);
+            if (updated != current) WriteAtomic(p, updated);
         }
         catch { /* best-effort cosmetic */ }
     }
@@ -923,7 +960,9 @@ public static class ShortcutCreator
         {
             var p = TerminalSettingsPath;
             if (!File.Exists(p)) return;
-            File.WriteAllText(p, UnhideProfileJson(File.ReadAllText(p)));
+            var current = File.ReadAllText(p);
+            var updated = UnhideProfileJson(current);
+            if (updated != current) WriteAtomic(p, updated);
         }
         catch { }
     }

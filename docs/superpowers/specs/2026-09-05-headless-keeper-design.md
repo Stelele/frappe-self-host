@@ -66,10 +66,13 @@ Field facts driving this design:
  │                          │ converted ONCE, committed as           │
  │                          │ payload/basapos.ico, installed to      │
  │                          │ C:\BasaPOS\bin\basapos.ico.            │
- │ Shortcut naming?         │ Ours keeps clean "BasaPOS"; installer  │
- │                          │ hides the distro Terminal profile      │
- │                          │ (settings.json hidden:true, best-      │
- │                          │ effort, reverted on uninstall).        │
+ │ Shortcut naming?         │ Ours keeps clean "BasaPOS"; installer      │
+ │                          │ disables the WSL profile SOURCE in       │
+ │                          │ Terminal (`disabledProfileSources` +=    │
+ │                          │ `Windows.Terminal.Wsl`, best-effort,     │
+ │                          │ reverted on uninstall). Name-keyed       │
+ │                          │ `hidden:true` does NOT work (Terminal    │
+ │                          │ matches dynamic profiles by GUID).       │
  │ Kill-the-keeper safety?  │ Repetition watchdog trigger (≤5 min).  │
  │ Account model?           │ SINGLE Windows account per machine     │
  │                          │ (kiosk-style). Triggers scoped to the  │
@@ -160,7 +163,9 @@ console; Win11-`conhost --headless` fragile); Windows Service as keeper
  │ ShortcutCreator    │ Start Menu + Desktop BasaPOS.lnk → SiteUrl,  │
  │ (new)              │ icon C:\BasaPOS\bin\basapos.ico (copies the  │
  │                    │ .ico there first). Idempotent overwrite.     │
- │                    │ Hides distro Terminal profile (best-effort). │
+ │                    │ Disables the WSL Terminal source             │
+ │                    │ (JSONC-tolerant parse, no-op when already    │
+ │                    │ set, atomic write; reverts on uninstall).    │
  │                    │ Removes all three on uninstall.              │
  │ Compose policy     │ NO CODE CHANGE. Verification step + CI/test  │
  │ (verification      │ asserting: every service has a restart       │
