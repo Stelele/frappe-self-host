@@ -65,8 +65,11 @@ public class InstallComponentsTests
     public void WslConfig_renders_and_strips_managed_block()
     {
         var s = WslConfig.Render(6L * 1024 * 1024 * 1024);
-        Assert.Contains("vmIdleTimeout=-1", s);
         Assert.Contains("memory=6GB", s);
+        // vmIdleTimeout deliberately NOT rendered: proven ignored on pinned
+        // WSL (2.7.11) and the #1 source of duplicate-key errors when stacked;
+        // the BasaPOS-Keeper scheduled task is the real keep-alive mechanism
+        Assert.DoesNotContain("vmIdleTimeout", s, StringComparison.OrdinalIgnoreCase);
 
         var withOther = "# other user config\n[experimental]\nautoMemoryReclaim=gradual\n" + s;
         var stripped = WslConfig.StripManagedBlock(withOther);
@@ -90,18 +93,34 @@ public class InstallComponentsTests
     public void WslConfig_strips_duplicate_blocks_case_insensitively()
     {
         // simulates an accumulated file: two managed blocks (one with edited
-        // marker case) plus foreign keys — uninstall must remove all OUR blocks
-        // and report the foreign remainder
+        // marker case) plus v2-style BARE timeout keys (no markers — v2 never
+        // cleaned .wslconfig) — uninstall must remove all OUR content and
+        // report only genuine foreign config
         var messy =
-            "# --- BasaPOS (managed) ---\n[wsl2]\nvmIdleTimeout=-1\nmemory=4GB\n# --- end BasaPOS ---\n" +
+            "# --- BasaPOS (managed) ---\n[wsl2]\nmemory=4GB\n# --- end BasaPOS ---\n" +
             "[wsl2]\ninstanceIdleTimeout=60000\n" +
-            "# --- basapos (managed) ---\n[wsl2]\nvmidletimeout=-1\n# --- END basapos ---\n";
-        var cleaned = WslConfig.StripOrphanFragment(WslConfig.StripManagedBlock(messy));
+            "vmIdleTimeout=-1\n" +
+            "vmidletimeout=-1\n" +
+            "vmIdleTimeout=60000\n" +
+            "# --- basapos (managed) ---\n[wsl2]\nmemory=4GB\n# --- END basapos ---\n";
+        var cleaned = WslConfig.StripLegacyTimeoutKeys(
+            WslConfig.StripOrphanFragment(WslConfig.StripManagedBlock(messy)));
         Assert.DoesNotContain("managed", cleaned, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("vmIdleTimeout", cleaned, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("vmidletimeout", cleaned, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("instanceIdleTimeout", cleaned, StringComparison.OrdinalIgnoreCase);
+        // our signature -1 values gone (all cases); user's own 60000 preserved
+        Assert.DoesNotContain("-1", cleaned);
+        Assert.Contains("vmIdleTimeout=60000", cleaned);
         var leftovers = WslConfig.SummarizeLeftovers(cleaned);
-        Assert.Contains("instanceIdleTimeout", leftovers); // foreign: reported, not deleted
+        Assert.Contains("vmIdleTimeout=60000", leftovers); // user's: reported, not deleted
+    }
+
+    [Fact]
+    public void WslConfig_strip_legacy_keys_preserves_user_tuning()
+    {
+        var content = "[wsl2]\nmemory=8GB\nvmIdleTimeout=120000\n";
+        var cleaned = WslConfig.StripLegacyTimeoutKeys(content);
+        Assert.Contains("vmIdleTimeout=120000", cleaned); // user's own value: untouched
+        Assert.Contains("memory=8GB", cleaned);
     }
 
     [Fact]

@@ -7,13 +7,13 @@ public static class WslConfig
     const string Begin = "# --- BasaPOS (managed) ---";
 
     public static string Render(long memoryBytes) =>
-        $"{Begin}\n[wsl2]\nvmIdleTimeout=-1\nmemory={memoryBytes / (1024L * 1024 * 1024)}GB\n# --- end BasaPOS ---\n";
+        $"{Begin}\n[wsl2]\nmemory={memoryBytes / (1024L * 1024 * 1024)}GB\n# --- end BasaPOS ---\n";
 
     public static void Write(long memoryBytes)
     {
         var existing = File.Exists(WslConfigPath) ? File.ReadAllText(WslConfigPath) : "";
         var block = Render(memoryBytes);
-        var final = StripManagedBlock(existing).TrimEnd() + "\n" + block;
+        var final = StripLegacyTimeoutKeys(StripManagedBlock(existing)).TrimEnd() + "\n" + block;
         WriteAtomic(WslConfigPath, final);
     }
 
@@ -27,10 +27,31 @@ public static class WslConfig
     {
         if (!File.Exists(WslConfigPath)) return "";
         var existing = File.ReadAllText(WslConfigPath);
-        var cleaned = StripOrphanFragment(StripManagedBlock(existing));
+        var cleaned = StripLegacyTimeoutKeys(StripOrphanFragment(StripManagedBlock(existing)));
         if (!HasKeys(cleaned)) { try { File.Delete(WslConfigPath); } catch { } return ""; }
         File.WriteAllText(WslConfigPath, cleaned);
         return SummarizeLeftovers(cleaned);
+    }
+
+    /// Strips legacy timeout keys left by v2/v3 installers and manual edits:
+    /// - ALL instanceIdleTimeout lines (any value, any case): NEVER a valid
+    ///   WSL key — v2 wrote it by mistake and WSL errors "unknown key" on it.
+    /// - vmIdleTimeout lines whose value is -1 (our signature across all
+    ///   versions, any case): v2 wrote these BARE (no markers) and never
+    ///   cleaned them on uninstall, so they stack into "duplicated config key"
+    ///   errors. A user's own vmIdleTimeout (any other value) is PRESERVED.
+    internal static string StripLegacyTimeoutKeys(string content)
+    {
+        var opts = System.Text.RegularExpressions.RegexOptions.Multiline
+            | System.Text.RegularExpressions.RegexOptions.IgnoreCase;
+        // instanceIdleTimeout: always invalid → always remove
+        content = System.Text.RegularExpressions.Regex.Replace(
+            content, @"^[ \t]*instanceidletimeout[ \t]*=.*(?:\r?\n)?", "", opts);
+        // vmIdleTimeout=-1: our signature value (v2/v3 leftovers) → remove;
+        // any other value is assumed to be the user's own tuning → keep
+        content = System.Text.RegularExpressions.Regex.Replace(
+            content, @"^[ \t]*vmidletimeout[ \t]*=[ \t]*-1\b.*(?:\r?\n)?", "", opts);
+        return content;
     }
 
     internal static string StripManagedBlock(string content) =>
