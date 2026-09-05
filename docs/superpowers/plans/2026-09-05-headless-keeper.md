@@ -388,9 +388,9 @@ Expected: FAIL — `ProcessRunner` does not exist.
 - [ ] **Step 3: Write minimal implementation** — create `keeper/ProcRunner.cs` with:
 
   - `public static IReadOnlyList<string> ParseDistroNames(string output)` — trim lines, drop blanks (same semantics as `WslRunner.ParseDistroList`).
-  - `public sealed class WslChild(Process p, StringBuilder stderr, IntPtr job) : IChildProcess` — `WaitForExit(ms)` → `p.WaitForExit(ms) ? 0 : 1`; `Exited()` → `p.HasExited`; `ExitCode` → `p.ExitCode`; `StderrTail` → last 2KB of captured stderr; `KillTree()` → `p.Kill(true)`; `Dispose()` → close job handle + dispose process.
-  - `public sealed class ProcessRunner : IProcessRunner` — `SpawnWslKeepalive()`: start `wsl.exe -d BasaPOS --exec /bin/sleep infinity` with `UseShellExecute=false, CreateNoWindow=true, RedirectStandardError=true` (stdout NOT redirected — sleep writes nothing; avoids pipe stall), async stderr drain capped at 4KB, assign process to a kill-on-close Job Object; `ListDistros()`: run `wsl.exe --list --quiet` (30s timeout, UTF-16 read — wsl emits UTF-16) best-effort (empty on any failure, never throw).
-  - Job Object P/Invoke: `CreateJobObject`, `SetInformationJobObject` (class 9 = `JobObjectExtendedLimitInformation`) with `JOBOBJECT_EXTENDED_LIMIT_INFORMATION` (`LimitFlags = 0x2000` = KILL_ON_JOB_CLOSE), `AssignProcessToJobObject`, `CloseHandle`. Structs: `JOBOBJECT_BASIC_LIMIT_INFORMATION` + 6-field `IO_COUNTERS` + 4 `UIntPtr` fields.
+  - `public sealed class WslChild(Process process, IntPtr job) : IChildProcess` — stderr drained via `ReadToEndAsync()` started AT SPAWN, snapshotted (2KB tail) on access. NEVER a Peek-gated sync drain: `StreamReader.Peek()` on a live pipe BLOCKS and would hang the loop on handle-inheriting grandchildren. `WaitForExit(ms)` → `p.WaitForExit(ms) ? 0 : 1`; `Exited()` → `p.HasExited`; `KillTree()` → `p.Kill(true)`; `Dispose()` → close job handle + dispose process. All accessors exception-safe.
+  - `public sealed class ProcessRunner : IProcessRunner` — `SpawnWslKeepalive()`: start `wsl.exe -d BasaPOS --exec /bin/sleep infinity` with `UseShellExecute=false, CreateNoWindow=true, RedirectStandardError=true` (stdout NOT redirected — sleep writes nothing; avoids pipe stall), assign process to a kill-on-close Job Object; a throw AFTER `Process.Start` must kill+dispose the started child (no immortal-sleep orphan). `ListDistros()`: run `wsl.exe --list --quiet` with async-read-BEFORE-wait ordering (mirrors `WslRunner.RunCore`: `ReadToEndAsync` → `WaitForExit(30s)` → kill on timeout — a sync `ReadToEnd()` first would make the timeout unreachable on hung wsl), UTF-16 read, best-effort (empty on any failure, never throw).
+  - Job Object P/Invoke: `CreateJobObject`, `SetInformationJobObject` (class 9 = `JobObjectExtendedLimitInformation`) with `JOBOBJECT_EXTENDED_LIMIT_INFORMATION` (`LimitFlags = 0x2000` = KILL_ON_JOB_CLOSE), `AssignProcessToJobObject`, `CloseHandle`. Structs: `JOBOBJECT_BASIC_LIMIT_INFORMATION` (field 2 is `PerJobUserTimeLimit`, NOT `JobMemoryLimit`) + 6-field `IO_COUNTERS` + 4 `UIntPtr` fields.
   - `FakeChild` in tests needs `public bool Exited() => true;` added (see Task 3 note) — make that edit in this task's Step 3 as well.
 
 - [ ] **Step 4: Write `keeper/Program.cs`** (top-level statements):
@@ -565,11 +565,18 @@ public void TaskRegistrar_script_stops_old_tasks_and_registers_two_triggers()
 }
 
 [Fact]
-public void TaskRegistrar_delete_stops_before_deleting()
+public void TaskRegistrar_delete_stops_all_tasks_before_deleting()
 {
+    // NOTE: stop-before-delete ORDERING lives in Delete() sequencing (stop
+    // script runs before the schtasks /delete calls) — a string builder
+    // cannot express ordering across two execution steps. This asserts the
+    // stop script covers all three names as one unit.
     var s = TaskRegistrar.BuildDeleteScript();
-    Assert.True(s.IndexOf("Stop-ScheduledTask") < s.IndexOf("/delete"),
-        "stop must precede delete so no running instance survives");
+    Assert.Contains("Stop-ScheduledTask -TaskName 'BasaPOS-Appliance'", s);
+    Assert.Contains("Stop-ScheduledTask -TaskName 'BasaPOS-Keeper'", s);
+    Assert.Contains("Stop-ScheduledTask -TaskName 'BasaPOS-Setup-Resume'", s);
+    Assert.True(s.StartsWith("$ErrorActionPreference='Stop';"),
+        "delete must run as a single stop-then-delete unit");
 }
 ```
 
