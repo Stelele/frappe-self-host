@@ -202,4 +202,14 @@ public class InstallComponentsTests
         Assert.Contains(@"C:\BasaPOS''\bin\BasaPOS.Keeper.exe", s);
         Assert.DoesNotContain("o'brien", s.Replace("o''brien", ""));
     }
+
+    [Fact]
+    public void KeeperProcess_path_match_is_exact_case_insensitive()
+    {
+        Assert.True(KeeperProcess.PathMatches(@"C:\BasaPOS\bin\BasaPOS.Keeper.exe", KeeperProcess.ExePath));
+        Assert.True(KeeperProcess.PathMatches(@"c:\basapos\BIN\basapos.keeper.exe", KeeperProcess.ExePath));
+        Assert.False(KeeperProcess.PathMatches(@"C:\BasaPOS\bin\other.exe", KeeperProcess.ExePath));
+        Assert.False(KeeperProcess.PathMatches(null, KeeperProcess.ExePath));
+        Assert.Equal(@"C:\BasaPOS\bin\BasaPOS.Keeper.exe", KeeperProcess.ExePath);
+    }
 }
