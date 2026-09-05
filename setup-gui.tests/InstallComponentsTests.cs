@@ -255,4 +255,18 @@ public class InstallComponentsTests
         Assert.DoesNotContain("Windows.Terminal.Wsl", r2);
         Assert.Contains("Windows.Terminal.Azure", r2);
     }
+
+    [Fact]
+    public void PowerPolicy_builders_are_exact()
+    {
+        var cmds = PowerPolicy.PowerCfgCommands();
+        Assert.Contains("powercfg.exe -change -standby-timeout-ac 0", cmds);
+        Assert.Contains("powercfg.exe -hibernate-timeout-ac 0", cmds);
+        var vals = PowerPolicy.UpdatePolicyValues();
+        Assert.Contains(vals, v => v.SubKey.EndsWith("WindowsUpdate\\AU")
+            && v.Name == "NoAutoRebootWithLoggedOnUsers" && Equals(v.Value, 1));
+        Assert.Contains(vals, v => v.SubKey.EndsWith("WindowsUpdate\\UX\\Settings")
+            && v.Name == "ActiveHoursStart" && Equals(v.Value, 8));
+        Assert.Contains(vals, v => v.Name == "ActiveHoursEnd" && Equals(v.Value, 23));
+    }
 }
