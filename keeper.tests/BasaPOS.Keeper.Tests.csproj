@@ -12,6 +12,6 @@
     <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="..\keeper\BasaPOS.Keeper.csproj" />
+    <Compile Include="..\keeper\**\*.cs" Exclude="..\keeper\Program.cs;..\keeper\obj\**\*.cs;..\keeper\bin\**\*.cs" Link="Keeper\%(RecursiveDir)%(Filename)%(Extension)" />
   </ItemGroup>
 </Project>
