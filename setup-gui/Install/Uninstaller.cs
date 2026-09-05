@@ -17,6 +17,7 @@ public sealed class Uninstaller(ISetupUi ui)
         ui.Status("Killing keeper process...");
         KeeperProcess.KillAll();
         ui.Status("Shutting down WSL...");
+        ui.Status("NOTE: this briefly stops ALL WSL distros (including unrelated ones like docker-desktop).");
         try { WslRunner.Wsl("--shutdown", 120); } catch { }
         ui.Status("Unregistering distro...");
         UnregisterBasaPOS();
