@@ -2,7 +2,7 @@
 
 ```
 Date:     2026-09-05
-Revision: 1.0 — approved design
+Revision: 1.1 — amended per adversarial review (advocate + lens 1 + lens 2)
 Status:   Approved — pending implementation plan
 Amends:   2026-08-31-wsl-docker-parity-installer-design.md (autostart section)
 ```
@@ -28,19 +28,25 @@ Amends:   2026-08-31-wsl-docker-parity-installer-design.md (autostart section)
 ```
 
 Field facts driving this design:
-- WSL2 VM lives only while ≥1 `wsl.exe` client session exists
+- WSL2 VM lives only while ≥1 `wsl.exe` client session is connected
   (`vmIdleTimeout` proven ignored on pinned WSL 2.7.11 — removed in v3.0.5).
 - The Start Menu "BasaPOS" entry the user clicks is the **WSL distro's own
   auto-generated Terminal profile** (opens a shell = accidental keeper).
-  v3 ships no shortcut of its own. It stays (cannot be cleanly removed);
-  once the hidden keeper exists it becomes a harmless Linux shell.
-- Generated compose has **zero `restart:` policies** and firstboot is
-  `RemainAfterExit=yes` → a VM cold boot today leaves containers DOWN.
-  Any self-healing keeper must fix this or it reboots into a dead site.
+  v3 ships no shortcut of its own.
+- CORRECTION (adversarial review v1.1): the compose stack **already**
+  carries `restart: unless-stopped` (upstream anchor in
+  `frappe_docker/compose.yaml:7`, confirmed 12× in generated
+  `compose.custom.yaml`; `configurator` deliberately `on-failure`). There
+  is NO compose change in this design. If a cold-boot symptom is ever
+  observed, the prime suspect is the keeper gap itself (VM never boots
+  without a `wsl.exe` client), to be verified live via
+  `docker inspect -f '{{.HostConfig.RestartPolicy.Name}}'` +
+  `systemctl is-enabled docker` — never by blindly stamping policies
+  (flipping configurator to `unless-stopped` would loop it forever).
 
 ---
 
-## 2 · Decisions (user-approved)
+## 2 · Decisions (user-approved, review-amended)
 
 ```
  ┌──────────────────────────┬────────────────────────────────────────┐
@@ -52,10 +58,34 @@ Field facts driving this design:
  │ Clicking "BasaPOS" does? │ Opens https://basapos.local in default │
  │                          │ browser (plain .lnk, site already up). │
  │ Keeper location?         │ C:\BasaPOS\bin\BasaPOS.Keeper.exe       │
- │                          │ (ProgramData path retires entirely).   │
- │ Shortcut icon?           │ Favicon of bsmtechsolutions.co.zw      │
- │                          │ (192px PNG → multi-size .ico).         │
+ │ Keeper publish model?    │ Self-contained single-file WinExe      │
+ │                          │ (~15–25 MB). Field has no .NET runtime │
+ │                          │ — framework-dependent would fail       │
+ │                          │ silently. Matches Setup's model.       │
+ │ Shortcut icon?           │ Favicon of bsmtechsolutions.co.zw,     │
+ │                          │ converted ONCE, committed as           │
+ │                          │ payload/basapos.ico, installed to      │
+ │                          │ C:\BasaPOS\bin\basapos.ico.            │
+ │ Shortcut naming?         │ Ours keeps clean "BasaPOS"; installer  │
+ │                          │ hides the distro Terminal profile      │
+ │                          │ (settings.json hidden:true, best-      │
+ │                          │ effort, reverted on uninstall).        │
  │ Kill-the-keeper safety?  │ Repetition watchdog trigger (≤5 min).  │
+ │ Account model?           │ SINGLE Windows account per machine     │
+ │                          │ (kiosk-style). Triggers scoped to the  │
+ │                          │ installing user; mutex is Global\.     │
+ │ Power/sleep?             │ Appliance standard: powercfg no-sleep  │
+ │                          │ on AC at install. Sleep/resume is      │
+ │                          │ otherwise untested territory.          │
+ │ WU overnight reboot?     │ Explicitly accepted gap: reboot →      │
+ │                          │ login screen → site down until logon.  │
+ │                          │ Mitigation: active hours +             │
+ │                          │ NoAutoRebootWithLoggedOnUsers;         │
+ │                          │ auto-logon documented as optional.     │
+ │ ProgramData?             │ boot.cmd retires; install.log STAYS    │
+ │                          │ (App.cs deliberately logs there so an  │
+ │                          │ open handle can't abort reinstall      │
+ │                          │ deletes of C:\BasaPOS).                │
  └──────────────────────────┴────────────────────────────────────────┘
 ```
 
@@ -68,25 +98,41 @@ console; Win11-`conhost --headless` fragile); Windows Service as keeper
 ## 3 · Architecture
 
 ```
- Windows logon
+ Windows logon (installing user)
   └─ Task: BasaPOS-Keeper (sole task; Appliance task + boot.cmd RETIRED)
-      ├─ trigger: at logon
+      ├─ trigger: at logon (scoped to installing user)
       ├─ trigger: every 5 min, indefinitely ("don't start new instance")
       ├─ settings: no time limit, RestartCount=3 / RestartInterval=PT1M
-      └─ action: C:\BasaPOS\bin\BasaPOS.Keeper.exe   (WinExe, no console)
-          ├─ named mutex → 2nd copy exits instantly (watchdog-safe)
-          ├─ heartbeat → C:\BasaPOS\logs\keeper.log (1 MB roll)
+      ├─ principal: highest run level, interactive
+      └─ action: C:\BasaPOS\bin\BasaPOS.Keeper.exe   (no console ever)
+          ├─ named mutex Global\BasaPOS.Keeper → 2nd copy exits 0
+          │   instantly (watchdog-safe)
+          ├─ watchdog thread: FailFast if main loop stalls >N sec
+          │   (hang → crash → task-restart path; a hung keeper
+          │   otherwise looks "Running" forever)
+          ├─ heartbeat → C:\BasaPOS\logs\keeper.log, 1 line / 60 s,
+          │   format: ts | state | child-pid | site-probe | note;
+          │   retention: keeper.log + keeper.log.1 (older deleted)
           └─ loop forever:
-               spawn wsl.exe -d BasaPOS --exec /bin/sleep infinity (hidden)
-               │
-               ├─ VM boots if down → systemd → docker.service (enabled)
-               │    └─ containers [restart: unless-stopped] ← NEW
-               │         └─ https://basapos.local healthy
-               │
-               └─ child exits? → log → sleep 5s → respawn
+               ├─ child = spawn wsl.exe -d BasaPOS --exec /bin/sleep
+               │   infinity (CreateNoWindow, stderr captured, child in
+               │   kill-on-close Job Object so keeper death reaps it)
+               ├─ every ~60 s: probe https://basapos.local/api/method/ping
+               │   (reuse HealthPoller semantics); log VM-UP vs SITE-UP
+               │   distinctly; M consecutive failures → log + capture
+               │   `systemctl is-active docker` via wsl (read-only diag)
+               ├─ child exits? → log exit code + stderr tail →
+               │   ├─ distro still listed? NO after N×30 s retries →
+               │   │   exit 1 FATAL (no loop; task burns 3× then stops)
+               │   └─ else → exponential backoff (5 s → cap 60 s) →
+               │       respawn (circuit-breaker marker file after N
+               │       fast exits so crash-loops are discoverable)
+               └─ exit codes: 0 = clean stop only; ANY non-zero → task
+                   restart ×3 (code value is for logs, Task Scheduler
+                   cannot distinguish them)
 
  User clicks "BasaPOS" ──→ Start Menu / Desktop .lnk ──→ browser
-                           icon: basapos.ico (from site favicon)
+                           icon: C:\BasaPOS\bin\basapos.ico
 ```
 
 ---
@@ -97,26 +143,41 @@ console; Win11-`conhost --headless` fragile); Windows Service as keeper
  ┌────────────────────┬──────────────────────────────────────────────┐
  │ Unit               │ Purpose / interface                          │
  ├────────────────────┼──────────────────────────────────────────────┤
- │ BasaPOS.Keeper.exe │ Hidden supervisor. Deps: wsl.exe, mutex,     │
- │ (new, minimal —    │ log file. NO WinForms (~1–5 MB, not 60).     │
- │ no GUI framework)  │ Exit codes: 0 clean-stop / 1 fatal (bad     │
- │                    │ distro) / 2+ unexpected (→ task restarts).   │
- │ TaskRegistrar v2   │ Creates ONE task (2 triggers via PS          │
- │                    │ ScheduledTaskTrigger array), deletes         │
- │                    │ BasaPOS-Appliance + BasaPOS-Setup-Resume.    │
+ │ BasaPOS.Keeper     │ Hidden supervisor (§3). Seam for tests:      │
+ │ (new project, raw  │ IProcessRunner over wsl.exe (spawn/wait/     │
+ │ .NET, NO WinForms; │ kill/stderr). Self-contained single-file.    │
+ │ tests: new         │                                              │
+ │ BasaPOS.Keeper.    │                                              │
+ │ Tests project)     │                                              │
+ │ TaskRegistrar v2   │ Creates ONE task by same name (overwrite via │
+ │                    │ -Force): 2 triggers via PS array, indefinite │
+ │                    │ repetition, IgnoreNew, Highest principal,    │
+ │                    │ installing-user scope. UPGRADE contract:     │
+ │                    │ Stop-ScheduledTask BOTH old names first      │
+ │                    │ (running v3.0.x keeper never exits on its    │
+ │                    │ own), delete boot.cmd, THEN register +       │
+ │                    │ Start-ScheduledTask.                         │
  │ ShortcutCreator    │ Start Menu + Desktop BasaPOS.lnk → SiteUrl,  │
- │ (new)              │ icon basapos.ico. Idempotent, removes on     │
- │                    │ uninstall.                                   │
- │ gen-compose.sh     │ Adds `restart: unless-stopped` to EVERY      │
- │                    │ service (cold-boot hole fix).                │
- │ Uninstaller        │ Kill keeper by EXE PATH → delete task →      │
- │                    │ delete shortcuts → existing flow. Retires    │
- │                    │ C:\ProgramData\BasaPOS + boot.cmd.           │
- │ payload/basapos.ico│ Multi-size .ico (16/32/48/256), converted ONCE from │
- │                    │ the site favicon and COMMITTED to the repo (builds  │
- │                    │ must stay offline-capable — no fetch at build time).│
- │                    │ Source: https://bsmtechsolutions.co.zw/wp-content/  │
- │                    │ uploads/2026/05/cropped-site_logo--192x192.png      │
+ │ (new)              │ icon C:\BasaPOS\bin\basapos.ico (copies the  │
+ │                    │ .ico there first). Idempotent overwrite.     │
+ │                    │ Hides distro Terminal profile (best-effort). │
+ │                    │ Removes all three on uninstall.              │
+ │ Compose policy     │ NO CODE CHANGE. Verification step + CI/test  │
+ │ (verification      │ asserting: every service has a restart       │
+ │ only)              │ policy AND configurator stays on-failure.    │
+ │ Uninstaller        │ ORDER: disable task → delete task → tree-    │
+ │                    │ kill keeper by EXE PATH (Get-Process | Where │
+ │                    │ Path -eq …) → wsl --shutdown → unregister →  │
+ │                    │ delete files. (Kill-first respawns the       │
+ │                    │ keeper mid-uninstall.) Retires boot.cmd;     │
+ │                    │ ProgramData dir survives ONLY for            │
+ │                    │ install.log (by design, §2).                 │
+ │ payload/basapos.ico│ Multi-size .ico (16/32/48/256), converted    │
+ │                    │ ONCE from the site favicon and COMMITTED     │
+ │                    │ (builds stay offline-capable). Source:       │
+ │                    │ https://bsmtechsolutions.co.zw/wp-content/   │
+ │                    │ uploads/2026/05/cropped-site_logo--192x192   │
+ │                    │ .png                                         │
  └────────────────────┴──────────────────────────────────────────────┘
 ```
 
@@ -128,20 +189,28 @@ console; Win11-`conhost --headless` fragile); Windows Service as keeper
  ┌────────────────────────────────┬───────────────┬──────────────────┐
  │ Failure                        │ Layer         │ Recovery         │
  ├────────────────────────────────┼───────────────┼──────────────────┤
- │ wsl.exe child dies / VM killed │ supervisor    │ ~5 s respawn     │
+ │ wsl.exe child dies / VM killed │ supervisor    │ backoff respawn  │
  │ keeper crashes (non-zero exit) │ task restart  │ ~1 min, ×3 tries │
+ │ keeper HANGS (no exit)         │ watchdog      │ FailFast → crash │
+ │                                │ thread        │ → layer above    │
  │ keeper killed (Task Mgr) /     │ repetition    │ ≤5 min (mutex    │
  │ clean exit / retries exhausted │ trigger       │ makes it safe)   │
  │ reboot                         │ at-logon      │ at logon         │
- │ container dies                 │ compose       │ docker restarts  │
- │                                │ unless-stopped│ it               │
- │ dockerd/VM cold boot           │ systemd chain │ auto ( §3 )      │
+ │ container dies at runtime      │ keeper probe  │ logged (VM-UP /  │
+ │                                │ + compose     │ SITE-DOWN);      │
+ │                                │ policy        │ docker restarts  │
+ │ dockerd/VM cold boot           │ upstream      │ auto (policies   │
+ │                                │ policies +    │ verified, not    │
+ │                                │ systemd chain │ added, §1)       │
+ │ host sleep/resume              │ powercfg      │ no-sleep on AC;  │
+ │                                │ (install)     │ resume path      │
+ │                                │               │ untested, logged │
  └────────────────────────────────┴───────────────┴──────────────────┘
 ```
 
 Out of scope (documented, not handled): someone **disabling the scheduled
-task itself** — no software can resurrect that; same limit as Windows
-services. Logoff stops the site (inherent to at-logon; accepted in §2).
+task itself**; WU reboot → login screen (§2); logoff stops the site
+(inherent to at-logon).
 
 ---
 
@@ -151,15 +220,26 @@ services. Logoff stops the site (inherent to at-logon; accepted in §2).
  ┌──────────────────────┬────────────────────────────────────────────┐
  │ Mode                 │ Behaviour                                  │
  ├──────────────────────┼────────────────────────────────────────────┤
- │ Distro missing       │ keeper exits 1 (fatal, no loop) → task     │
- │ (uninstalled distro) │ restart burns 3× then stops; log explains  │
- │ wsl.exe missing      │ keeper exits 1; same as above              │
- │ Two keepers (double  │ mutex: 2nd exits 0 instantly; single wsl   │
- │ trigger overlap)     │ child only                                 │
- │ Log file locked/full │ best-effort logging, never crashes keeper  │
- │ Icon fetch fails     │ .ico is committed, so this cannot happen at     │
- │                    │ build time; if the SOURCE favicon is unreachable │
- │                    │ when (re)generating, keep the existing .ico      │
+ │ Distro missing       │ N×30 s retries (covers slow early-logon    │
+ │                      │ WSL init) → exit 1 fatal; log names distro │
+ │                      │ absence distinctly from transient wsl      │
+ │                      │ errors (stderr captured, never discarded)  │
+ │ Keeper hang          │ watchdog FailFast → task-restart path (§5) │
+ │ Crash-loop (fast     │ backoff caps at 60 s; marker file after N  │
+ │ child exits)         │ fast exits; no silent CPU churn            │
+ │ schtasks /end vs     │ /end on hung process can flip state Ready  │
+ │ taskkill divergence  │ while process lives → mutex blocks dupes;  │
+ │                      │ tested (§7)                                │
+ │ Two keepers (trigger │ mutex: 2nd exits 0; single wsl child only  │
+ │ overlap)             │                                            │
+ │ Second Windows       │ Out of scope per §2 single-account rule;   │
+ │ account              │ foreign keeper fatal-exits loudly (log)    │
+ │ Log locked/full      │ best-effort logging, never crashes keeper; │
+ │                      │ retention §3                               │
+ │ Upgrade over running │ v2 stops old tasks BEFORE copying exe (§4) │
+ │ v3.0.x               │ — locked-exe copy failure impossible       │
+ │ Uninstall respawn    │ task deleted BEFORE kill (§4 order) — no   │
+ │ race                 │ +1 min / +5 min resurrection window        │
  └──────────────────────┴────────────────────────────────────────────┘
 ```
 
@@ -170,13 +250,19 @@ services. Logoff stops the site (inherent to at-logon; accepted in §2).
 ```
  install → close ALL windows → site stays up (no console anywhere)
  taskkill /F BasaPOS.Keeper.exe → keeper back ≤5 min, site unaffected*
- wsl --shutdown → VM reboots, containers auto-up (NEW behaviour)
+ schtasks /end + hang-simulation + logoff→logon matrix
+ wsl --shutdown → VM reboots, containers auto-up
  reboot → site up after logon, no clicks needed
- click "BasaPOS" → browser opens site, no console flash
- uninstall → keeper dead, task gone, shortcuts gone,
-             no C:\ProgramData\BasaPOS, no C:\BasaPOS
- unit: keeper loop (spawn/respawn/mutex) factored testable;
-       task args; shortcut paths; compose restart policy present
+ click "BasaPOS" → browser opens site, no console flash; Start search
+   shows OUR entry first (profile hidden)
+ upgrade v3.0.x → v3.1: old keeper stopped, new running, no console
+ uninstall → keeper dead, task gone, shortcuts gone, no boot.cmd,
+             ProgramData holds ONLY install.log
+ unit: keeper loop via IProcessRunner (spawn/respawn/mutex/backoff/
+       fatal-vs-transient matrix); task XML snapshot asserting
+       indefinite Repetition.Duration + IgnoreNew + principal;
+       compose assertion (policies exist, configurator on-failure);
+       shortcut paths + icon copy
 ```
 
 \* Site unaffected because traefik/containers keep running on the live VM;
@@ -186,7 +272,8 @@ only the keeper client respawns.
 
 ## 8 · Retired (removed by this design)
 
-- `C:\ProgramData\BasaPOS\boot.cmd` + `BootWrapper.cs` action (file,
-  writer, and its task trigger) — supervisor replaces it.
+- `C:\ProgramData\BasaPOS\boot.cmd` + `BootWrapper.cs` writer + its task
+  trigger — supervisor replaces it. (ProgramData dir itself stays for
+  `install.log`, §2.)
 - `BasaPOS-Appliance` scheduled task (uninstall still deletes the name).
 - Visible console at logon — nothing user-facing remains except shortcuts.
