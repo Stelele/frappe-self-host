@@ -7,7 +7,7 @@ public sealed class SiteProbe : ISiteProbe
     {
         try
         {
-            var r = await Http.GetAsync("https://basapos.local/api/method/ping", ct);
+            using var r = await Http.GetAsync("https://basapos.local/api/method/ping", ct);
             return r.IsSuccessStatusCode;
         }
         catch { return false; }
