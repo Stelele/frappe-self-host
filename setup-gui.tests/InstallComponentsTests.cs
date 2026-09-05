@@ -186,12 +186,20 @@ public class InstallComponentsTests
 
     [Fact]
     public void TaskRegistrar_delete_stops_all_tasks_before_deleting()
-    {
-        var s = TaskRegistrar.BuildDeleteScript();
+    {        var s = TaskRegistrar.BuildDeleteScript();
         Assert.Contains("Stop-ScheduledTask -TaskName 'BasaPOS-Appliance'", s);
         Assert.Contains("Stop-ScheduledTask -TaskName 'BasaPOS-Keeper'", s);
         Assert.Contains("Stop-ScheduledTask -TaskName 'BasaPOS-Setup-Resume'", s);
         Assert.True(s.StartsWith("$ErrorActionPreference='Stop';"),
             "delete must run as a single stop-then-delete unit");
+    }
+
+    [Fact]
+    public void TaskRegistrar_script_escapes_apostrophes_in_user_and_exe()
+    {
+        var s = TaskRegistrar.BuildRegisterScript("o'brien", @"C:\BasaPOS'\bin\BasaPOS.Keeper.exe");
+        Assert.Contains("o''brien", s);
+        Assert.Contains(@"C:\BasaPOS''\bin\BasaPOS.Keeper.exe", s);
+        Assert.DoesNotContain("o'brien", s.Replace("o''brien", ""));
     }
 }
