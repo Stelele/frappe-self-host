@@ -105,4 +105,29 @@ public class KeeperLoopTests
         var names = ProcessRunner.ParseDistroNames("BasaPOS\r\nUbuntu\r\n\r\n");
         Assert.Equal(new[] { "BasaPOS", "Ubuntu" }, names);
     }
+
+    [Fact]
+    public void HeartbeatLog_rolls_at_1MB_keeping_one_backup()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "hb-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        var path = Path.Combine(dir, "keeper.log");
+        File.WriteAllText(path, new string('x', (1 << 20) + 10));
+        var log = new HeartbeatLog(path);
+        log.Write("ts | TICK | site=up");
+        Assert.True(new FileInfo(Path.Combine(dir, "keeper.log.1")).Length > (1 << 20));
+        Assert.Contains("TICK", File.ReadAllText(path));
+        Directory.Delete(dir, recursive: true);
+    }
+
+    [Fact]
+    public void HeartbeatLog_never_throws_on_locked_file()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "hb-locked.log");
+        using var locked = File.Open(path, FileMode.Create, FileAccess.ReadWrite, FileShare.None);
+        var log = new HeartbeatLog(path); // must not throw
+        log.Write("x");                    // must not throw
+        locked.Dispose();
+        File.Delete(path);
+    }
 }
