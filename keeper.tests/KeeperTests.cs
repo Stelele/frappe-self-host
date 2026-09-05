@@ -98,4 +98,11 @@ public class KeeperLoopTests
         loop.Run(cts.Token);
         Assert.True(loop.LastTick >= before);
     }
+
+    [Fact]
+    public void ParseDistroNames_trims_and_drops_blanks()
+    {
+        var names = ProcessRunner.ParseDistroNames("BasaPOS\r\nUbuntu\r\n\r\n");
+        Assert.Equal(new[] { "BasaPOS", "Ubuntu" }, names);
+    }
 }
