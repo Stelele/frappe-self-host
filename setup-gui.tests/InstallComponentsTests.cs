@@ -218,9 +218,16 @@ public class InstallComponentsTests
     [Fact]
     public void ShortcutCreator_paths_and_icon()
     {
+        // NOTE: StartMenuLink/DesktopLink resolve OS folders (empty on Linux
+        // shells), so folder-dependent EndsWith asserts are Windows-only. The
+        // join logic itself is tested OS-independently via JoinLink.
         Assert.Equal("BasaPOS.lnk", ShortcutCreator.LinkName);
-        Assert.EndsWith(@"Programs\BasaPOS.lnk", ShortcutCreator.StartMenuLink);
-        Assert.EndsWith(@"Desktop\BasaPOS.lnk", ShortcutCreator.DesktopLink);
+        Assert.Equal(@"C:\SM\Programs\BasaPOS.lnk",
+            ShortcutCreator.JoinLink(@"C:\SM", "Programs", "BasaPOS.lnk"));
+        Assert.Equal(@"C:\DT\BasaPOS.lnk",
+            ShortcutCreator.JoinLink(@"C:\DT", "BasaPOS.lnk"));
+        Assert.EndsWith("BasaPOS.lnk", ShortcutCreator.StartMenuLink);
+        Assert.EndsWith("BasaPOS.lnk", ShortcutCreator.DesktopLink);
         Assert.Equal(Path.Combine(Paths.BinDir, "basapos.ico"), ShortcutCreator.IconPath);
     }
 

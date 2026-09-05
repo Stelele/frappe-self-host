@@ -6,8 +6,11 @@ namespace BasaPOS.Setup.Install;
 public static class ShortcutCreator
 {
     public const string LinkName = "BasaPOS.lnk";
-    public static string StartMenuLink => Environment.GetFolderPath(Environment.SpecialFolder.CommonStartMenu) + @"\Programs\" + LinkName;
-    public static string DesktopLink => Environment.GetFolderPath(Environment.SpecialFolder.CommonDesktopDirectory) + "\\" + LinkName;
+    internal static string JoinLink(params string[] parts) => string.Join("\\", parts);
+    public static string StartMenuLink => JoinLink(
+        Environment.GetFolderPath(Environment.SpecialFolder.CommonStartMenu), "Programs", LinkName);
+    public static string DesktopLink => JoinLink(
+        Environment.GetFolderPath(Environment.SpecialFolder.CommonDesktopDirectory), LinkName);
     public static string IconPath => Path.Combine(Paths.BinDir, "basapos.ico");
 
     /// payloadDir: installer payload folder containing BasaPOS.Keeper.exe + basapos.ico.
