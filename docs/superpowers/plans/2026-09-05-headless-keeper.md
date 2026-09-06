@@ -1125,15 +1125,30 @@ git add setup-gui/Install/InstallOrchestrator.cs setup-gui/Install/BootWrapper.c
 echo "== restart policy guard (keeper cold-boot contract) =="
 grep -q 'restart: unless-stopped' "$TMPV/opt/basapos/compose/compose.final.yaml" \
   || { echo "VALIDATE FAIL: no unless-stopped policy in shipped compose"; exit 1; }
-awk '/^  configurator:/,/^  [a-z_]+:/' "$TMPV/opt/basapos/compose/compose.final.yaml" \
+# Flag-based range (NOT /start/,/end/): the start line `  configurator:`
+# itself matches `^  [a-z…]:`, so a classic range closes immediately and
+# always false-negatives under gawk.
+awk '/^  configurator:/{p=1} p{print} p&&/^  [a-z0-9_-]+:/&&!/^  configurator:/{p=0}' \
+  "$TMPV/opt/basapos/compose/compose.final.yaml" \
   | grep -q 'restart: on-failure' \
   || { echo "VALIDATE FAIL: configurator must stay on-failure (one-shot would loop)"; exit 1; }
 ```
 
-- [ ] **Step 2: Verify the guard logic against the committed sample**
+- [ ] **Step 2: Verify the guard logic** — against the committed sample if
+  present (`compose.custom.yaml` is gitignored/generated; absent in fresh
+  worktrees — use any representative compose with a `configurator:` block,
+  or the printf sample below):
 
-Run: `awk '/^  configurator:/,/^  [a-z_]+:/' compose.custom.yaml | grep -q 'restart: on-failure' && echo CONFIG-OK; grep -c 'restart: unless-stopped' compose.custom.yaml`
-Expected: `CONFIG-OK` and count `12`.
+Run: `awk '/^  configurator:/{p=1} p{print} p&&/^  [a-z0-9_-]+:/&&!/^  configurator:/{p=0}' compose.custom.yaml | grep -q 'restart: on-failure' && echo CONFIG-OK; grep -c 'restart: unless-stopped' compose.custom.yaml`
+Expected: `CONFIG-OK` and a nonzero count (12 on the current pin).
+
+Self-contained check (no sample file needed):
+```bash
+printf 'services:\n  configurator:\n    image: x\n    restart: on-failure\n  nginx:\n    restart: unless-stopped\n' \
+| awk '/^  configurator:/{p=1} p{print} p&&/^  [a-z0-9_-]+:/&&!/^  configurator:/{p=0}' \
+| grep -q 'restart: on-failure' && echo CONFIG-OK
+```
+Expected: `CONFIG-OK`.
 
 - [ ] **Step 3: Commit**
 
