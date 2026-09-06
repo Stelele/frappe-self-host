@@ -71,7 +71,7 @@ public sealed class ProcessRunner : IProcessRunner
                 UseShellExecute = false,
                 CreateNoWindow = true,
                 RedirectStandardOutput = true,
-                StandardOutputEncoding = Encoding.Unicode,
+                StandardOutputEncoding = Encoding.UTF8, // --exec emits raw Linux bytes (UTF-8/ASCII), not wsl's UTF-16
             };
             using var p = Process.Start(psi) ?? throw new InvalidOperationException("failed to start wsl.exe");
             var outTask = p.StandardOutput.ReadToEndAsync();

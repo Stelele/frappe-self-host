@@ -28,6 +28,7 @@ public sealed class KeeperLoop(
             log($"keeper: spawned wsl child pid={child.Pid}");
             child.WaitForExit(60_000);
             if (ct.IsCancellationRequested) return;
+            var exitedAt = clock();
             bool up;
             try { up = probe.ProbeAsync(ct).GetAwaiter().GetResult(); }
             catch { up = false; }
@@ -47,7 +48,7 @@ public sealed class KeeperLoop(
             if (child.Exited())
             {
                 log($"keeper: child pid={child.Pid} exited {child.ExitCode} stderr={child.StderrTail}");
-                var lifetime = clock() - spawnedAt;
+                var lifetime = exitedAt - spawnedAt;
                 if (lifetime < TimeSpan.FromSeconds(10))
                     fastExits++;
                 else

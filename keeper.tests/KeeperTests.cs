@@ -158,6 +158,26 @@ public class KeeperLoopTests
     }
 
     [Fact]
+    public void Lifetime_excludes_probe_duration()
+    {
+        // Probe blackholes 11s (advancing the fake clock); child exits instantly.
+        // Correct: classified by CHILD lifetime (fast) → marker fires.
+        // Buggy: measured across the probe (11s → slow) → marker never fires.
+        using var cts = new CancellationTokenSource();
+        var r = new FakeRunner();
+        var now = DateTime.UtcNow;
+        var fired = new List<string>();
+        ISiteProbe slowProbe = new FuncProbe(() => { now += TimeSpan.FromSeconds(11); return false; });
+        var sleeps = 0;
+        var loop = new KeeperLoop(r, slowProbe,
+            ts => { sleeps++; if (sleeps >= 6) cts.Cancel(); }, // bound: never infinite
+            _ => { }, () => now,
+            msg => { fired.Add(msg); cts.Cancel(); });
+        loop.Run(cts.Token);
+        Assert.Single(fired);
+    }
+
+    [Fact]
     public void Docker_diag_runs_once_after_3_consecutive_downs()
     {
         using var cts = new CancellationTokenSource();
