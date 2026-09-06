@@ -52,6 +52,17 @@ echo "== offline pull policy =="
 grep -q 'pull_policy: never' "$TMPV/opt/basapos/compose/compose.final.yaml" \
   || { echo "VALIDATE FAIL: pull_policy not pinned to never"; exit 1; }
 
+echo "== restart policy guard (keeper cold-boot contract) =="
+grep -q 'restart: unless-stopped' "$TMPV/opt/basapos/compose/compose.final.yaml" \
+  || { echo "VALIDATE FAIL: no unless-stopped policy in shipped compose"; exit 1; }
+# Flag-based range (NOT /start/,/end/): the start line `  configurator:`
+# itself matches `^  [a-z…]:`, so a classic range closes immediately and
+# always false-negatives under gawk.
+awk '/^  configurator:/{p=1} p{print} p&&/^  [a-z0-9_-]+:/&&!/^  configurator:/{p=0}' \
+  "$TMPV/opt/basapos/compose/compose.final.yaml" \
+  | grep -q 'restart: on-failure' \
+  || { echo "VALIDATE FAIL: configurator must stay on-failure (one-shot would loop)"; exit 1; }
+
 echo "== size report =="
 ls -lh "$TAR"
 echo "VALIDATE OK"
