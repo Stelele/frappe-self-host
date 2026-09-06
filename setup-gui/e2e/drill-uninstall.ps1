@@ -12,6 +12,11 @@ if ((wsl --list --quiet | Out-String) -match 'BasaPOS') { throw 'distro still re
 if ((Get-Content C:\Windows\System32\drivers\etc\hosts -Raw) -match '127\.0\.0\.1\s+basapos\.local') { throw 'hosts entry left' }
 if (Get-ScheduledTask -TaskName 'BasaPOS-Appliance' -ErrorAction SilentlyContinue) { throw 'autostart task left' }
 if (Test-Path C:\ProgramData\BasaPOS\boot.cmd) { throw 'boot.cmd left' }
+if (Get-Process -Name 'BasaPOS.Keeper' -ErrorAction SilentlyContinue) { throw 'keeper process left' }
+try { Get-ScheduledTask -TaskName 'BasaPOS-Keeper' -ErrorAction Stop; throw 'keeper task left' } catch { }
+if (Test-Path "$env:ProgramData\Microsoft\Windows\Start Menu\Programs\BasaPOS.lnk") { throw 'start menu link left' }
+if (Test-Path C:\BasaPOS\bin) { throw 'bin dir left' }
+if (-not (Test-Path C:\ProgramData\BasaPOS\install.log)) { throw 'install.log must survive in ProgramData by design' }
 if (Test-Path C:\BasaPOS\distro) { throw 'distro dir left' }
 if (Test-Path C:\BasaPOS\config) { throw 'config dir left' }
 $leftover = Get-ChildItem C:\BasaPOS -ErrorAction SilentlyContinue | Where-Object Name -ne 'backups'
