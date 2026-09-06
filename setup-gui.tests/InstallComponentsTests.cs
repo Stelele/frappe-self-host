@@ -257,6 +257,23 @@ public class InstallComponentsTests
     }
 
     [Fact]
+    public void Prereqs_missing_payload_files_lists_all_gaps()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "pl-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        Assert.Equal(3, Prereqs.MissingPayloadFiles(dir).Length); // parts + exe + ico
+        File.WriteAllText(Path.Combine(dir, "basapos-distro.tar.part-00"), "x");
+        var two = Prereqs.MissingPayloadFiles(dir);
+        Assert.Equal(2, two.Length);
+        Assert.Contains("BasaPOS.Keeper.exe", two);
+        Assert.Contains("basapos.ico", two);
+        File.WriteAllText(Path.Combine(dir, "BasaPOS.Keeper.exe"), "x");
+        File.WriteAllText(Path.Combine(dir, "basapos.ico"), "x");
+        Assert.Empty(Prereqs.MissingPayloadFiles(dir));
+        Directory.Delete(dir, recursive: true);
+    }
+
+    [Fact]
     public void PowerPolicy_builders_are_exact()
     {
         var cmds = PowerPolicy.PowerCfgCommands();

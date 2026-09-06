@@ -19,10 +19,10 @@ public static class Prereqs
             throw new InvalidOperationException(
                 $"Need ≥25 GB free on {drive}, have {free / 1e9:F1} GB.");
 
-        if (!Directory.Exists(payloadDir) ||
-            !Directory.GetFiles(payloadDir, "basapos-distro.tar.part-*").Any())
+        var missing = MissingPayloadFiles(payloadDir);
+        if (missing.Length > 0)
             throw new InvalidOperationException(
-                $"Payload not found.\nExpected: {payloadDir}\\basapos-distro.tar.part-*\n" +
+                $"Payload incomplete — missing in {payloadDir}:\n  " + string.Join("\n  ", missing) + "\n" +
                 "Copy the full USB payload folder next to BasaPOS-Setup.exe and re-run.");
 
         // HypervisorPresent: a hypervisor is already running (Hyper-V/VBS).
@@ -41,5 +41,16 @@ public static class Prereqs
         if (running || firmware) { status("Virtualization: OK"); return; }
         throw new InvalidOperationException(
             "Hardware virtualization is disabled. Enable VT-x/AMD-V in BIOS, then re-run.");
+    }
+
+    internal static string[] MissingPayloadFiles(string payloadDir)
+    {
+        var missing = new List<string>();
+        if (!Directory.Exists(payloadDir) ||
+            !Directory.GetFiles(payloadDir, "basapos-distro.tar.part-*").Any())
+            missing.Add("basapos-distro.tar.part-*");
+        foreach (var f in new[] { "BasaPOS.Keeper.exe", "basapos.ico" })
+            if (!File.Exists(Path.Combine(payloadDir, f))) missing.Add(f);
+        return missing.ToArray();
     }
 }
