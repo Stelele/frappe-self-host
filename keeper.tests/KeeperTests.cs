@@ -17,17 +17,29 @@ sealed class FakeRunner : IProcessRunner
     public Queue<IChildProcess> Children = new();
     public List<string> DistroList = new() { "BasaPOS" };
     public int SpawnCount;
+    public Func<string, string> DiagFunc = _ => "";
+    public List<string> DiagCalls = new();
     public IChildProcess SpawnWslKeepalive()
     {
         SpawnCount++;
         return Children.Count > 0 ? Children.Dequeue() : new FakeChild(0);
     }
     public IReadOnlyList<string> ListDistros() => DistroList;
+    public string RunWslDiag(string arguments)
+    {
+        DiagCalls.Add(arguments);
+        return DiagFunc(arguments);
+    }
 }
 
 sealed class FakeProbe(bool up) : ISiteProbe
 {
     public Task<bool> ProbeAsync(CancellationToken ct) => Task.FromResult(up);
+}
+
+sealed class FuncProbe(Func<bool> fn) : ISiteProbe
+{
+    public Task<bool> ProbeAsync(CancellationToken ct) => Task.FromResult(fn());
 }
 
 public class KeeperLoopTests
@@ -129,5 +141,35 @@ public class KeeperLoopTests
         log.Write("x");                    // must not throw
         locked.Dispose();
         File.Delete(path);
+    }
+
+    [Fact]
+    public void CrashLoop_marker_fires_once_after_5_fast_exits()
+    {
+        using var cts = new CancellationTokenSource();
+        var r = new FakeRunner(); // default child exits immediately → lifetime ~0 → fast
+        var fired = new List<string>();
+        var now = DateTime.UtcNow;
+        var loop = new KeeperLoop(r, new FakeProbe(true), ts => { }, _ => { }, () => now,
+            msg => { fired.Add(msg); cts.Cancel(); });
+        loop.Run(cts.Token);
+        Assert.Single(fired);
+        Assert.Contains("5 consecutive fast", fired[0]);
+    }
+
+    [Fact]
+    public void Docker_diag_runs_once_after_3_consecutive_downs()
+    {
+        using var cts = new CancellationTokenSource();
+        var r = new FakeRunner();
+        r.DiagFunc = _ => "active\nactive";
+        var logs = new List<string>();
+        var downs = 0;
+        var probe = new FuncProbe(() => { downs++; return downs > 3; });
+        var sleeps = 0;
+        var loop = new KeeperLoop(r, probe, ts => { sleeps++; if (sleeps >= 5) cts.Cancel(); }, logs.Add, () => DateTime.UtcNow);
+        loop.Run(cts.Token);
+        Assert.Single(r.DiagCalls);
+        Assert.Contains(logs, l => l.Contains("diag: docker services:") && l.Contains("active"));
     }
 }

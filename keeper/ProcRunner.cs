@@ -59,6 +59,33 @@ public sealed class ProcessRunner : IProcessRunner
         }
         catch { return Array.Empty<string>(); } // never throw: absence of data ≠ absence of distro is handled by retry logic
     }
+
+    public string RunWslDiag(string arguments)
+    {
+        try
+        {
+            var psi = new ProcessStartInfo
+            {
+                FileName = Environment.SystemDirectory + @"\wsl.exe",
+                Arguments = arguments,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                RedirectStandardOutput = true,
+                StandardOutputEncoding = Encoding.Unicode,
+            };
+            using var p = Process.Start(psi) ?? throw new InvalidOperationException("failed to start wsl.exe");
+            var outTask = p.StandardOutput.ReadToEndAsync();
+            if (!p.WaitForExit(30_000))
+            {
+                outTask.ContinueWith(t => { var _ = t.Exception; }, TaskContinuationOptions.OnlyOnFaulted);
+                try { p.Kill(true); } catch { }
+                return "";
+            }
+            p.WaitForExit();
+            return outTask.Result;
+        }
+        catch { return ""; }
+    }
 }
 
 sealed class WslChild : IChildProcess

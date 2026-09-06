@@ -14,6 +14,7 @@ public interface IProcessRunner
 {
     IChildProcess SpawnWslKeepalive();
     IReadOnlyList<string> ListDistros();
+    string RunWslDiag(string arguments);
 }
 
 public interface ISiteProbe

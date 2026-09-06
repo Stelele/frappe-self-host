@@ -6,7 +6,9 @@ if (!createdNew) return 0; // watchdog fired while alive — exit clean
 var logPath = Path.Combine(@"C:\BasaPOS\logs", "keeper.log");
 var blog = new HeartbeatLog(logPath);
 Action<string> log = m => blog.Write(m);
-var loop = new KeeperLoop(new ProcessRunner(), new SiteProbe(), Thread.Sleep, log, () => DateTime.UtcNow);
+var markerPath = Path.Combine(@"C:\BasaPOS\logs", "keeper-crashloop.marker");
+Action<string> onCrash = m => { try { File.WriteAllText(markerPath, $"[{DateTime.UtcNow:yyyy-MM-dd HH:mm:ss}] {m}\n"); } catch { } log("MARKER: " + m); };
+var loop = new KeeperLoop(new ProcessRunner(), new SiteProbe(), Thread.Sleep, log, () => DateTime.UtcNow, onCrash);
 var watchdog = new Thread(() =>
 {
     while (true)

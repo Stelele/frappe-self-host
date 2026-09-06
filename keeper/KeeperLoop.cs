@@ -5,7 +5,8 @@ public sealed class KeeperLoop(
     ISiteProbe probe,
     Action<TimeSpan> sleep,
     Action<string> log,
-    Func<DateTime> clock)
+    Func<DateTime> clock,
+    Action<string>? onCrashLoop = null)
 {
     public DateTime LastTick { get; private set; } = clock();
 
@@ -18,10 +19,11 @@ public sealed class KeeperLoop(
     /// Runs until cancelled (returns) or the distro is proven missing (throws FatalKeeperException).
     public void Run(CancellationToken ct)
     {
-        int failures = 0, missingStreak = 0;
+        int failures = 0, missingStreak = 0, fastExits = 0, downStreak = 0;
         while (!ct.IsCancellationRequested)
         {
             LastTick = clock();
+            var spawnedAt = clock();
             using var child = runner.SpawnWslKeepalive();
             log($"keeper: spawned wsl child pid={child.Pid}");
             child.WaitForExit(60_000);
@@ -31,9 +33,27 @@ public sealed class KeeperLoop(
             catch { up = false; }
             log(up ? "probe: SITE-UP" : "probe: SITE-DOWN (VM alive, site not responding)");
             LastTick = clock();
+            if (up)
+                downStreak = 0;
+            else
+            {
+                downStreak++;
+                if (downStreak == 3)
+                {
+                    var diag = runner.RunWslDiag("-d BasaPOS -u root --exec systemctl is-active docker docker.socket");
+                    log($"diag: docker services: {diag}");
+                }
+            }
             if (child.Exited())
             {
                 log($"keeper: child pid={child.Pid} exited {child.ExitCode} stderr={child.StderrTail}");
+                var lifetime = clock() - spawnedAt;
+                if (lifetime < TimeSpan.FromSeconds(10))
+                    fastExits++;
+                else
+                    fastExits = 0;
+                if (fastExits == 5)
+                    onCrashLoop?.Invoke($"crash-loop: {fastExits} consecutive fast child exits; last exit {child.ExitCode} stderr={child.StderrTail}");
                 if (!runner.ListDistros().Any(d => d.Equals("BasaPOS", StringComparison.OrdinalIgnoreCase)))
                 {
                     missingStreak++;
