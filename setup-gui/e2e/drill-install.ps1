@@ -17,7 +17,6 @@ if (-not ((Get-Content C:\Windows\System32\drivers\etc\hosts -Raw) -match 'basap
 if (-not (Test-Path C:\BasaPOS\config\credentials.txt)) { throw 'credentials missing' }
 if (-not (Test-Path C:\BasaPOS\config\basapos.crt))     { throw 'cert not exported' }
 if (-not (Test-Path C:\BasaPOS\config\version.txt))     { throw 'version.txt missing' }
-if (-not (Get-ScheduledTask -TaskName 'BasaPOS-Appliance' -ErrorAction SilentlyContinue)) { throw 'autostart task missing' }
 if (-not (Test-Path C:\BasaPOS\bin\BasaPOS.Keeper.exe)) { throw 'keeper exe missing' }
 if (Test-Path C:\ProgramData\BasaPOS\boot.cmd)           { throw 'legacy boot.cmd must not be created' }
 $kt = Get-ScheduledTask -TaskName 'BasaPOS-Keeper'

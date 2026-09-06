@@ -1221,7 +1221,10 @@ git add .github/workflows/ci.yml && git commit -m "ci: keeper tests+publish, pay
 
 Run: `pwsh -NoProfile -Command "$null = [Parser]::ParseFile('setup-gui/e2e/drill-install.ps1', [ref]$null, [ref]$null); 'SYNTAX OK'"` (or `powershell` equivalent if pwsh absent — then syntax check is CI-gated; note it in the commit message)
 
-- [ ] **Step 1: `drill-install.ps1`** — REPLACE the `boot.cmd` presence assertion with:
+- [ ] **Step 1: `drill-install.ps1`** — DELETE the retired-task assertion
+  (`if (-not (Get-ScheduledTask -TaskName 'BasaPOS-Appliance' ...))` — the
+  Appliance task no longer exists; asserting it fails CI), then REPLACE the
+  `boot.cmd` presence assertion with:
 
 ```powershell
 if (-not (Test-Path C:\BasaPOS\bin\BasaPOS.Keeper.exe)) { throw 'keeper exe missing' }
