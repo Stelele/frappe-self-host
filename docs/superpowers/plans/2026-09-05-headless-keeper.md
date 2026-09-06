@@ -1086,6 +1086,8 @@ git add setup-gui/Install/PowerPolicy.cs setup-gui.tests/InstallComponentsTests.
 
 ```csharp
 ui.Status("Deploying keeper + registering autostart...");              // 7
+KeeperProcess.KillAll(); // stop any running keeper BEFORE overwriting its exe (locked image)
+BootWrapper.Delete(); // remove legacy boot.cmd on upgrade (install.log keeps ProgramData alive)
 Directory.CreateDirectory(Paths.BinDir);
 File.Copy(Path.Combine(payload, "BasaPOS.Keeper.exe"),
     Path.Combine(Paths.BinDir, "BasaPOS.Keeper.exe"), overwrite: true);
