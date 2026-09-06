@@ -51,9 +51,13 @@ public sealed class InstallOrchestrator(ISetupUi ui)
         // pinned WSL and only stacked into duplicate-key errors.)
         try { WslRunner.Wsl("--shutdown", 60); } catch { /* no VM running yet */ }
 
-        ui.Status("Registering autostart...");                            // 7
-        BootWrapper.Write();
+        ui.Status("Deploying keeper + registering autostart...");              // 7
+        Directory.CreateDirectory(Paths.BinDir);
+        File.Copy(Path.Combine(payload, "BasaPOS.Keeper.exe"),
+            Path.Combine(Paths.BinDir, "BasaPOS.Keeper.exe"), overwrite: true);
+        PowerPolicy.Apply(ui.Status);
         TaskRegistrar.Register();
+        ShortcutCreator.Create(payload);
 
         ui.Status("First boot: loading images + creating site (5-15 min)..."); // 8
         var boot = WslRunner.Wsl($"-d {Paths.DistroName} --exec /bin/true", 300);
