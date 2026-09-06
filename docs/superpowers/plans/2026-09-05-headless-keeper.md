@@ -1254,7 +1254,7 @@ if ($kt.State -ne 'Running' -and $kt.State -ne 'Ready') { throw "unexpected keep
 ```powershell
 if (Test-Path C:\ProgramData\BasaPOS\boot.cmd) { throw 'boot.cmd left' }
 if (Get-Process -Name 'BasaPOS.Keeper' -ErrorAction SilentlyContinue) { throw 'keeper process left' }
-try { Get-ScheduledTask -TaskName 'BasaPOS-Keeper' -ErrorAction Stop; throw 'keeper task left' } catch { }
+if (Get-ScheduledTask -TaskName 'BasaPOS-Keeper' -ErrorAction SilentlyContinue) { throw 'keeper task left' } # NOT try/catch: PS catches its own inner throw → unconditional pass
 if (Test-Path "$env:ProgramData\Microsoft\Windows\Start Menu\Programs\BasaPOS.lnk") { throw 'start menu link left' }
 if (Test-Path C:\BasaPOS\bin) { throw 'bin dir left' }
 if (-not (Test-Path C:\ProgramData\BasaPOS\install.log)) { throw 'install.log must survive in ProgramData by design' }
