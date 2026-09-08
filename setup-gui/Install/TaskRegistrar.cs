@@ -35,9 +35,13 @@ public static class TaskRegistrar
         return "$ErrorActionPreference='Stop'; " +
             "$a=New-ScheduledTaskAction -Execute '" + x + "'; " +
             "$t1=New-ScheduledTaskTrigger -AtLogOn -User '" + u + "'; " +
+            // NOTE: no -RepetitionDuration on purpose. An omitted duration means
+            // the 5-minute repetition runs INDEFINITELY; any explicit huge
+            // value (e.g. [TimeSpan]::MaxValue) is rejected by the scheduler
+            // as out of range (proven by CI: "task XML ... incorrectly
+            // formatted"). Do NOT add one back.
             "$t2=New-ScheduledTaskTrigger -Once -At (Get-Date) " +
-            "-RepetitionInterval (New-TimeSpan -Minutes 5) " +
-            "-RepetitionDuration ([TimeSpan]::MaxValue); " +
+            "-RepetitionInterval (New-TimeSpan -Minutes 5); " +
             "$p=New-ScheduledTaskPrincipal -UserId '" + u + "' -LogonType Interactive -RunLevel Highest; " +
             "$s=New-ScheduledTaskSettingsSet -ExecutionTimeLimit ([TimeSpan]::Zero) " +
             "-RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1) -MultipleInstances IgnoreNew; " +
