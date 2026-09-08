@@ -54,5 +54,17 @@ public static class TaskRegistrar
         WslRunner.RunAnsi("schtasks.exe", $"/delete /tn {TaskName} /f", 60);
         WslRunner.RunAnsi("schtasks.exe", $"/delete /tn {KeeperTaskName} /f", 60);
         WslRunner.RunAnsi("schtasks.exe", $"/delete /tn {LegacyResumeTask} /f", 60);
+        // Verify: a failed delete (exit code swallowed above — absence is the
+        // normal case) must not proceed to BinDir removal under a live task.
+        var survivors = WslRunner.RunAnsi("powershell.exe",
+            "-NoProfile -ExecutionPolicy Bypass -Command \"" + BuildSurvivorScript() + "\"", 60);
+        if (!string.IsNullOrWhiteSpace(survivors.Output))
+            throw new InvalidOperationException(
+                "Could not remove scheduled task(s): " + survivors.Output.Trim() +
+                ". Delete them in Task Scheduler and run Uninstall again.");
     }
+
+    internal static string BuildSurvivorScript() =>
+        "Get-ScheduledTask -TaskName 'BasaPOS-Appliance','BasaPOS-Keeper','BasaPOS-Setup-Resume' " +
+        "-ErrorAction SilentlyContinue | Select-Object -ExpandProperty TaskName";
 }

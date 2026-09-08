@@ -3,6 +3,13 @@
 # Schema: https://docs.coderabbit.ai/reference/configuration
 language: en-US
 
+# Docstring-coverage pre-merge check is off: this C# codebase documents via
+# XML comments on public surface selectively, and an 80%-of-functions gate
+# is miscalibrated for it (it warns on every PR with no path to green).
+pre_merge_checks:
+  docstrings:
+    mode: off
+
 reviews:
   # chill = balanced signal/noise for a small team; raise to assertive if
   # reviews feel thin, lower to quiet if they feel naggy.

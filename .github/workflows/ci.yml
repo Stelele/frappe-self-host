@@ -170,6 +170,8 @@ jobs:
           cp keeper/BasaPOS.Keeper.exe out/payload/
           cp payload/basapos.ico out/payload/
           cp parts/basapos-distro.tar.part-* parts/SHA256SUMS out/payload/
+          # installer verifies keeper files against these entries (Prereqs.AssertPayloadHashes)
+          (cd out/payload && sha256sum BasaPOS.Keeper.exe basapos.ico >> SHA256SUMS)
           curl -fsSL -o out/payload/wsl.msi \
             https://github.com/microsoft/WSL/releases/download/2.7.11/wsl.2.7.11.0.x64.msi
       - uses: actions/upload-artifact@v4

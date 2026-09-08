@@ -52,6 +52,10 @@ public sealed class InstallOrchestrator(ISetupUi ui)
         try { WslRunner.Wsl("--shutdown", 60); } catch { /* no VM running yet */ }
 
         ui.Status("Deploying keeper + registering autostart...");              // 7
+        // Delete (not just kill) first: the old task's repetition trigger
+        // could otherwise resurrect the keeper between KillAll and File.Copy
+        // and lock the exe image mid-copy. Register() recreates it below.
+        TaskRegistrar.Delete();
         KeeperProcess.KillAll(); // stop any running keeper BEFORE overwriting its exe (locked image)
         BootWrapper.Delete(); // remove legacy boot.cmd on upgrade (install.log keeps ProgramData alive)
         Directory.CreateDirectory(Paths.BinDir);

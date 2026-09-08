@@ -32,6 +32,20 @@ mv "$DEST/basapos.ico" "$PAYLOAD/" 2>/dev/null || true
 echo "== verifying payload parts =="
 (cd "$PAYLOAD" && grep 'basapos-distro.tar.part-' SHA256SUMS | sha256sum -c -)
 
+echo "== checking keeper payload (v3.1+) =="
+# Old tags predate the keeper and legitimately lack these files (warn only);
+# exactly-one-present means broken packaging (fail). The installer prereqs
+# hard-fail on any gap, so a bad payload can never slip through silently.
+keeper_missing=0; ico_missing=0
+[ -f "$PAYLOAD/BasaPOS.Keeper.exe" ] || keeper_missing=1
+[ -f "$PAYLOAD/basapos.ico" ] || ico_missing=1
+if [ "$keeper_missing" -eq 1 ] && [ "$ico_missing" -eq 1 ]; then
+  echo "WARNING: no keeper files in payload — release predates v3.1 (v3.1+ installer will refuse this payload)."
+elif [ "$keeper_missing" -eq 1 ] || [ "$ico_missing" -eq 1 ]; then
+  echo "ERROR: partial keeper payload (exactly one of BasaPOS.Keeper.exe / basapos.ico missing) — broken release packaging."
+  exit 1
+fi
+
 echo
 echo "== ready =="
 echo "  $DEST/"

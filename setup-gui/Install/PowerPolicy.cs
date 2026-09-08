@@ -29,7 +29,12 @@ public static class PowerPolicy
         foreach (var cmd in PowerCfgCommands())
         {
             var parts = cmd.Split(' ', 2);
-            try { WslRunner.RunAnsi(parts[0], parts[1], 60); }
+            try
+            {
+                var r = WslRunner.RunAnsi(parts[0], parts[1], 60);
+                if (r.ExitCode != 0)
+                    status?.Invoke($"NOTE: power tweak skipped ({cmd} exited {r.ExitCode}: {r.Error.Trim()})");
+            }
             catch (Exception ex) { status?.Invoke($"NOTE: power tweak skipped ({ex.Message})"); }
         }
         foreach (var v in UpdatePolicyValues())

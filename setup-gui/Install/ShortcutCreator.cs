@@ -37,11 +37,16 @@ public static class ShortcutCreator
         sc.Save();
     }
 
-    public static void Remove()
+    /// Removes both links. Returns paths that could NOT be removed so the
+    /// caller can report them (a silent catch would claim a clean uninstall
+    /// while stale links remain).
+    public static string[] Remove()
     {
+        var failed = new List<string>();
         foreach (var lnk in new[] { StartMenuLink, DesktopLink })
-            try { if (File.Exists(lnk)) File.Delete(lnk); } catch { }
+            try { if (File.Exists(lnk)) File.Delete(lnk); } catch { failed.Add(lnk); }
         UnhideTerminalProfile();
+        return failed.ToArray();
     }
 
     static string TerminalSettingsPath => Path.Combine(
@@ -97,11 +102,22 @@ public static class ShortcutCreator
     }
 
     // Atomic: temp file + move, so a crash/concurrent Terminal save
-    // cannot truncate the user's settings.
+    // cannot truncate the user's settings. The temp file is created
+    // EXCLUSIVELY (CreateNew fails if anything — including a planted
+    // symlink — already sits at the path); a stale tmp from a crashed run
+    // is deleted first, and any failure degrades to skipping this
+    // best-effort cosmetic step.
     static void WriteAtomic(string path, string content)
     {
         var tmp = path + ".basapos.tmp";
-        File.WriteAllText(tmp, content);
+        try { if (File.Exists(tmp)) File.Delete(tmp); } catch { return; }
+        try
+        {
+            using (var fs = new FileStream(tmp, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+            using (var sw = new StreamWriter(fs))
+                sw.Write(content);
+        }
+        catch { return; }
         File.Move(tmp, path, overwrite: true);
     }
 

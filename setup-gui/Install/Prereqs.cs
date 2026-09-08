@@ -1,4 +1,5 @@
 using System.Management;
+using System.Security.Cryptography;
 
 namespace BasaPOS.Setup.Install;
 
@@ -24,6 +25,7 @@ public static class Prereqs
             throw new InvalidOperationException(
                 $"Payload incomplete — missing in {payloadDir}:\n  " + string.Join("\n  ", missing) + "\n" +
                 "Copy the full USB payload folder next to BasaPOS-Setup.exe and re-run.");
+        AssertPayloadHashes(payloadDir);
 
         // HypervisorPresent: a hypervisor is already running (Hyper-V/VBS).
         // VirtualizationFirmwareEnabled: VT-x/AMD-V on in BIOS (reads FALSE
@@ -52,5 +54,27 @@ public static class Prereqs
         foreach (var f in new[] { "BasaPOS.Keeper.exe", "basapos.ico" })
             if (!File.Exists(Path.Combine(payloadDir, f))) missing.Add(f);
         return missing.ToArray();
+    }
+
+    /// Verifies keeper payload files against their SHA256SUMS entries.
+    /// Scope: CORRUPTION (bad USB copies, partial downloads) — not targeted
+    /// tampering, which hash-checks cannot stop without a PKI trust anchor
+    /// (none exists on field machines; exes are self-published unsigned).
+    internal static void AssertPayloadHashes(string payloadDir)
+    {
+        var sums = PartStitcher.ParseSums(Path.Combine(payloadDir, "SHA256SUMS"));
+        foreach (var name in new[] { "BasaPOS.Keeper.exe", "basapos.ico" })
+        {
+            var path = Path.Combine(payloadDir, name);
+            if (!File.Exists(path))
+                throw new InvalidOperationException($"Payload incomplete — missing {name}. Re-copy the payload and re-run.");
+            if (!sums.TryGetValue(name, out var want))
+                throw new InvalidOperationException(
+                    $"SHA256SUMS has no entry for {name} — payload predates v3.1 or is incomplete. Re-fetch the release.");
+            var got = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(path))).ToLowerInvariant();
+            if (got != want)
+                throw new InvalidOperationException(
+                    $"Checksum mismatch for {name}: file is corrupt. Re-copy the payload and re-run.");
+        }
     }
 }
