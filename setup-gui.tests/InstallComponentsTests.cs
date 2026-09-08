@@ -274,6 +274,29 @@ public class InstallComponentsTests
     }
 
     [Fact]
+    public void Prereqs_payload_hashes_accept_matching_reject_tampered_or_unlisted()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "ph-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        var exe = Path.Combine(dir, "BasaPOS.Keeper.exe");
+        var ico = Path.Combine(dir, "basapos.ico");
+        File.WriteAllText(exe, "keeper-bytes");
+        File.WriteAllText(ico, "icon-bytes");
+        using var sha = System.Security.Cryptography.SHA256.Create();
+        string H(string p) => Convert.ToHexString(sha.ComputeHash(File.ReadAllBytes(p))).ToLowerInvariant();
+        var sums = Path.Combine(dir, "SHA256SUMS");
+        File.WriteAllText(sums, $"{H(exe)}  BasaPOS.Keeper.exe\n{H(ico)}  basapos.ico\n");
+        Prereqs.AssertPayloadHashes(dir); // no throw
+        File.AppendAllText(exe, "tamper");
+        Assert.Throws<InvalidOperationException>(() => Prereqs.AssertPayloadHashes(dir));
+        File.WriteAllText(exe, "keeper-bytes"); // restore
+        File.WriteAllText(sums, $"{H(exe)}  BasaPOS.Keeper.exe\n"); // ico unlisted
+        var ex = Assert.Throws<InvalidOperationException>(() => Prereqs.AssertPayloadHashes(dir));
+        Assert.Contains("basapos.ico", ex.Message);
+        Directory.Delete(dir, recursive: true);
+    }
+
+    [Fact]
     public void PowerPolicy_builders_are_exact()
     {
         var cmds = PowerPolicy.PowerCfgCommands();
