@@ -173,9 +173,11 @@ public class InstallComponentsTests
     public void TaskRegistrar_script_stops_old_tasks_and_registers_two_triggers()
     {
         var s = TaskRegistrar.BuildRegisterScript("tech", @"C:\BasaPOS\bin\BasaPOS.Keeper.exe");
-        Assert.Contains("Stop-ScheduledTask -TaskName 'BasaPOS-Appliance'", s);
-        Assert.Contains("Stop-ScheduledTask -TaskName 'BasaPOS-Keeper'", s);
-        Assert.Contains("Unregister-ScheduledTask -TaskName 'BasaPOS-Appliance'", s);
+        // preamble tolerates missing tasks (fresh install): per-task try/catch
+        Assert.Contains("Stop-ScheduledTask -TaskName $n", s);
+        Assert.Contains("Unregister-ScheduledTask -TaskName $n", s);
+        Assert.Contains("try {", s);
+        Assert.Contains("'BasaPOS-Appliance','BasaPOS-Keeper'", s);
         Assert.Contains("New-ScheduledTaskTrigger -AtLogOn", s);
         Assert.Contains("RepetitionInterval", s);
         Assert.Contains("New-TimeSpan -Minutes 5", s);
@@ -187,9 +189,11 @@ public class InstallComponentsTests
     [Fact]
     public void TaskRegistrar_delete_stops_all_tasks_before_deleting()
     {        var s = TaskRegistrar.BuildDeleteScript();
-        Assert.Contains("Stop-ScheduledTask -TaskName 'BasaPOS-Appliance'", s);
-        Assert.Contains("Stop-ScheduledTask -TaskName 'BasaPOS-Keeper'", s);
-        Assert.Contains("Stop-ScheduledTask -TaskName 'BasaPOS-Setup-Resume'", s);
+        // missing tasks must NOT fail the stop (fresh install/uninstall):
+        // per-task try/catch swallows every severity
+        Assert.Contains("Stop-ScheduledTask -TaskName $n", s);
+        Assert.Contains("try {", s);
+        Assert.Contains("'BasaPOS-Appliance','BasaPOS-Keeper','BasaPOS-Setup-Resume'", s);
         Assert.True(s.StartsWith("$ErrorActionPreference='Stop';"),
             "delete must run as a single stop-then-delete unit");
     }

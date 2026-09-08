@@ -20,11 +20,15 @@ public static class TaskRegistrar
     {
         var u = user.Replace("'", "''");
         var x = exe.Replace("'", "''");
+        // Stop/unregister preamble MUST tolerate missing tasks (fresh install):
+        // Stop-ScheduledTask on a nonexistent task can throw terminating
+        // regardless of -ErrorAction, which under $ErrorActionPreference='Stop'
+        // would abort with exit 1. Per-task try/catch swallows every severity;
+        // the REAL work below keeps fail-loud Stop semantics.
         return "$ErrorActionPreference='Stop'; " +
-            "Stop-ScheduledTask -TaskName 'BasaPOS-Appliance' -ErrorAction SilentlyContinue; " +
-            "Stop-ScheduledTask -TaskName 'BasaPOS-Keeper' -ErrorAction SilentlyContinue; " +
-            "Unregister-ScheduledTask -TaskName 'BasaPOS-Appliance' -Confirm:$false -ErrorAction SilentlyContinue; " +
-            "Unregister-ScheduledTask -TaskName 'BasaPOS-Keeper' -Confirm:$false -ErrorAction SilentlyContinue; " +
+            "foreach ($n in 'BasaPOS-Appliance','BasaPOS-Keeper') " +
+            "{ try { Stop-ScheduledTask -TaskName $n -ErrorAction Stop } catch { }; " +
+            "try { Unregister-ScheduledTask -TaskName $n -Confirm:$false -ErrorAction Stop } catch { } }; " +
             "$a=New-ScheduledTaskAction -Execute '" + x + "'; " +
             "$t1=New-ScheduledTaskTrigger -AtLogOn -User '" + u + "'; " +
             "$t2=New-ScheduledTaskTrigger -Once -At (Get-Date) " +
@@ -40,9 +44,8 @@ public static class TaskRegistrar
 
     internal static string BuildDeleteScript() =>
         "$ErrorActionPreference='Stop'; " +
-        "Stop-ScheduledTask -TaskName 'BasaPOS-Appliance' -ErrorAction SilentlyContinue; " +
-        "Stop-ScheduledTask -TaskName 'BasaPOS-Keeper' -ErrorAction SilentlyContinue; " +
-        "Stop-ScheduledTask -TaskName 'BasaPOS-Setup-Resume' -ErrorAction SilentlyContinue; ";
+        "foreach ($n in 'BasaPOS-Appliance','BasaPOS-Keeper','BasaPOS-Setup-Resume') " +
+        "{ try { Stop-ScheduledTask -TaskName $n -ErrorAction Stop } catch { } }; ";
 
     public static void Delete()
     {
@@ -69,6 +72,6 @@ public static class TaskRegistrar
     }
 
     internal static string BuildSurvivorScript() =>
-        "Get-ScheduledTask -TaskName 'BasaPOS-Appliance','BasaPOS-Keeper','BasaPOS-Setup-Resume' " +
-        "-ErrorAction SilentlyContinue | Select-Object -ExpandProperty TaskName";
+        "try { Get-ScheduledTask -TaskName 'BasaPOS-Appliance','BasaPOS-Keeper','BasaPOS-Setup-Resume' " +
+        "-ErrorAction Stop | Select-Object -ExpandProperty TaskName } catch { }";
 }
