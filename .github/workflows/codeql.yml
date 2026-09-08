@@ -1,0 +1,41 @@
+name: "CodeQL"
+
+# Security-focused static analysis for the C# code (setup GUI, keeper,
+# downloader). Free for public repos. PowerShell/bash are not CodeQL
+# languages — ShellCheck (via CodeRabbit tools) covers the .ps1 drills.
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+  schedule:
+    - cron: '0 6 * * 1'
+
+permissions:
+  contents: read
+  security-events: write
+  actions: read
+
+jobs:
+  analyze:
+    name: Analyze (csharp)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+      - uses: github/codeql-action/init@v3
+        with:
+          languages: csharp
+      # Manual build: no .sln in repo, so autobuild has nothing to discover.
+      # Must mirror the exact projects CI publishes (tests excluded — no prod surface).
+      - name: Build for analysis
+        run: |
+          dotnet build setup-gui/BasaPOS-Setup.csproj -c Release --nologo
+          dotnet build keeper/BasaPOS.Keeper.csproj -c Release --nologo
+          dotnet build downloader/BasaPOS-Downloader.csproj -c Release --nologo
+      - uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:csharp"

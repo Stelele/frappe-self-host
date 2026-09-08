@@ -168,4 +168,154 @@ public class InstallComponentsTests
             foreach (var c in "0O1lI") Assert.DoesNotContain(c, pw.ToString());
         }
     }
+
+    [Fact]
+    public void TaskRegistrar_script_stops_old_tasks_and_registers_two_triggers()
+    {
+        var s = TaskRegistrar.BuildRegisterScript("tech", @"C:\BasaPOS\bin\BasaPOS.Keeper.exe");
+        Assert.Contains("Stop-ScheduledTask -TaskName 'BasaPOS-Appliance'", s);
+        Assert.Contains("Stop-ScheduledTask -TaskName 'BasaPOS-Keeper'", s);
+        Assert.Contains("Unregister-ScheduledTask -TaskName 'BasaPOS-Appliance'", s);
+        Assert.Contains("New-ScheduledTaskTrigger -AtLogOn", s);
+        Assert.Contains("RepetitionInterval", s);
+        Assert.Contains("New-TimeSpan -Minutes 5", s);
+        Assert.Contains("IgnoreNew", s);
+        Assert.Contains(@"C:\BasaPOS\bin\BasaPOS.Keeper.exe", s);
+        Assert.Contains("Start-ScheduledTask -TaskName 'BasaPOS-Keeper'", s);
+    }
+
+    [Fact]
+    public void TaskRegistrar_delete_stops_all_tasks_before_deleting()
+    {        var s = TaskRegistrar.BuildDeleteScript();
+        Assert.Contains("Stop-ScheduledTask -TaskName 'BasaPOS-Appliance'", s);
+        Assert.Contains("Stop-ScheduledTask -TaskName 'BasaPOS-Keeper'", s);
+        Assert.Contains("Stop-ScheduledTask -TaskName 'BasaPOS-Setup-Resume'", s);
+        Assert.True(s.StartsWith("$ErrorActionPreference='Stop';"),
+            "delete must run as a single stop-then-delete unit");
+    }
+
+    [Fact]
+    public void TaskRegistrar_script_escapes_apostrophes_in_user_and_exe()
+    {
+        var s = TaskRegistrar.BuildRegisterScript("o'brien", @"C:\BasaPOS'\bin\BasaPOS.Keeper.exe");
+        Assert.Contains("o''brien", s);
+        Assert.Contains(@"C:\BasaPOS''\bin\BasaPOS.Keeper.exe", s);
+        Assert.DoesNotContain("o'brien", s.Replace("o''brien", ""));
+    }
+
+    [Fact]
+    public void TaskRegistrar_survivor_script_queries_all_three_names()
+    {
+        var s = TaskRegistrar.BuildSurvivorScript();
+        Assert.Contains("BasaPOS-Appliance", s);
+        Assert.Contains("BasaPOS-Keeper", s);
+        Assert.Contains("BasaPOS-Setup-Resume", s);
+    }
+
+    [Fact]
+    public void KeeperProcess_path_match_is_exact_case_insensitive()
+    {
+        Assert.True(KeeperProcess.PathMatches(@"C:\BasaPOS\bin\BasaPOS.Keeper.exe", KeeperProcess.ExePath));
+        Assert.True(KeeperProcess.PathMatches(@"c:\basapos\BIN\basapos.keeper.exe", KeeperProcess.ExePath));
+        Assert.True(KeeperProcess.PathMatches(@"C:/BasaPOS/bin/BasaPOS.Keeper.exe", KeeperProcess.ExePath)); // mixed separators
+        Assert.True(KeeperProcess.PathMatches(@"C:\BasaPOS\bin\BasaPOS.Keeper.exe\", KeeperProcess.ExePath)); // trailing slash
+        Assert.False(KeeperProcess.PathMatches(@"C:\BasaPOS\bin\other.exe", KeeperProcess.ExePath));
+        Assert.False(KeeperProcess.PathMatches(null, KeeperProcess.ExePath));
+        Assert.Equal(@"C:\BasaPOS\bin\BasaPOS.Keeper.exe", KeeperProcess.ExePath);
+    }
+
+    [Fact]
+    public void ShortcutCreator_paths_and_icon()
+    {
+        // NOTE: StartMenuLink/DesktopLink resolve OS folders (empty on Linux
+        // shells), so folder-dependent EndsWith asserts are Windows-only. The
+        // join logic itself is tested OS-independently via JoinLink.
+        Assert.Equal("BasaPOS.lnk", ShortcutCreator.LinkName);
+        Assert.Equal(@"C:\SM\Programs\BasaPOS.lnk",
+            ShortcutCreator.JoinLink(@"C:\SM", "Programs", "BasaPOS.lnk"));
+        Assert.Equal(@"C:\DT\BasaPOS.lnk",
+            ShortcutCreator.JoinLink(@"C:\DT", "BasaPOS.lnk"));
+        Assert.EndsWith("BasaPOS.lnk", ShortcutCreator.StartMenuLink);
+        Assert.EndsWith("BasaPOS.lnk", ShortcutCreator.DesktopLink);
+        Assert.Equal(Path.Combine(Paths.BinDir, "basapos.ico"), ShortcutCreator.IconPath);
+    }
+
+    [Fact]
+    public void TerminalHide_manages_wsl_source_entry()
+    {
+        // Mechanism: disabledProfileSources += Windows.Terminal.Wsl (name-keyed
+        // hidden:true does NOT hide GUID-matched dynamic profiles).
+        var empty = """{"profiles":{"list":[]}}""";
+        var hidden = ShortcutCreator.HideProfileJson(empty);
+        Assert.Contains("Windows.Terminal.Wsl", hidden);
+        Assert.Contains("disabledProfileSources", hidden);
+        Assert.Equal(hidden, ShortcutCreator.HideProfileJson(hidden)); // idempotent
+        var restored = ShortcutCreator.UnhideProfileJson(hidden);
+        Assert.DoesNotContain("Windows.Terminal.Wsl", restored);
+        // stock Terminal settings.json is JSONC (comments, trailing commas)
+        var jsonc = "// terminal settings\n{\"profiles\":{\"list\":[]},}";
+        Assert.Contains("Windows.Terminal.Wsl", ShortcutCreator.HideProfileJson(jsonc));
+        // unhide returns the ORIGINAL string when nothing to remove (no gratuitous rewrite)
+        var clean = """{"disabledProfileSources":["Windows.Terminal.Azure"]}""";
+        Assert.Equal(clean, ShortcutCreator.UnhideProfileJson(clean));
+        // keeps other sources, removes only ours
+        var multi = """{"disabledProfileSources":["Windows.Terminal.Wsl","Windows.Terminal.Azure"]}""";
+        var r2 = ShortcutCreator.UnhideProfileJson(multi);
+        Assert.DoesNotContain("Windows.Terminal.Wsl", r2);
+        Assert.Contains("Windows.Terminal.Azure", r2);
+    }
+
+    [Fact]
+    public void Prereqs_missing_payload_files_lists_all_gaps()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "pl-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        Assert.Equal(3, Prereqs.MissingPayloadFiles(dir).Length); // parts + exe + ico
+        File.WriteAllText(Path.Combine(dir, "basapos-distro.tar.part-00"), "x");
+        var two = Prereqs.MissingPayloadFiles(dir);
+        Assert.Equal(2, two.Length);
+        Assert.Contains("BasaPOS.Keeper.exe", two);
+        Assert.Contains("basapos.ico", two);
+        File.WriteAllText(Path.Combine(dir, "BasaPOS.Keeper.exe"), "x");
+        File.WriteAllText(Path.Combine(dir, "basapos.ico"), "x");
+        Assert.Empty(Prereqs.MissingPayloadFiles(dir));
+        Directory.Delete(dir, recursive: true);
+    }
+
+    [Fact]
+    public void Prereqs_payload_hashes_accept_matching_reject_tampered_or_unlisted()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "ph-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        var exe = Path.Combine(dir, "BasaPOS.Keeper.exe");
+        var ico = Path.Combine(dir, "basapos.ico");
+        File.WriteAllText(exe, "keeper-bytes");
+        File.WriteAllText(ico, "icon-bytes");
+        using var sha = System.Security.Cryptography.SHA256.Create();
+        string H(string p) => Convert.ToHexString(sha.ComputeHash(File.ReadAllBytes(p))).ToLowerInvariant();
+        var sums = Path.Combine(dir, "SHA256SUMS");
+        File.WriteAllText(sums, $"{H(exe)}  BasaPOS.Keeper.exe\n{H(ico)}  basapos.ico\n");
+        Prereqs.AssertPayloadHashes(dir); // no throw
+        File.AppendAllText(exe, "tamper");
+        Assert.Throws<InvalidOperationException>(() => Prereqs.AssertPayloadHashes(dir));
+        File.WriteAllText(exe, "keeper-bytes"); // restore
+        File.WriteAllText(sums, $"{H(exe)}  BasaPOS.Keeper.exe\n"); // ico unlisted
+        var ex = Assert.Throws<InvalidOperationException>(() => Prereqs.AssertPayloadHashes(dir));
+        Assert.Contains("basapos.ico", ex.Message);
+        Directory.Delete(dir, recursive: true);
+    }
+
+    [Fact]
+    public void PowerPolicy_builders_are_exact()
+    {
+        var cmds = PowerPolicy.PowerCfgCommands();
+        Assert.Contains("powercfg.exe -change -standby-timeout-ac 0", cmds);
+        Assert.Contains("powercfg.exe -hibernate-timeout-ac 0", cmds);
+        var vals = PowerPolicy.UpdatePolicyValues();
+        Assert.Contains(vals, v => v.SubKey.EndsWith("WindowsUpdate\\AU")
+            && v.Name == "NoAutoRebootWithLoggedOnUsers" && Equals(v.Value, 1));
+        Assert.Contains(vals, v => v.SubKey.EndsWith("WindowsUpdate\\UX\\Settings")
+            && v.Name == "ActiveHoursStart" && Equals(v.Value, 8));
+        Assert.Contains(vals, v => v.Name == "ActiveHoursEnd" && Equals(v.Value, 23));
+    }
 }

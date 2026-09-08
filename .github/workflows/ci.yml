@@ -42,6 +42,14 @@ jobs:
           dotnet-version: "10.0.x"
       - name: Test logic components
         run: dotnet test setup-gui.tests/BasaPOS-Setup.tests.csproj -c Release
+      - name: Test keeper components
+        run: dotnet test keeper.tests/BasaPOS.Keeper.Tests.csproj -c Release
+      - name: Publish keeper (WinExe, cross-build from Linux)
+        run: |
+          dotnet publish keeper/BasaPOS.Keeper.csproj -c Release \
+            -r win-x64 --self-contained true \
+            -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true \
+            -o publish-keeper
       - name: Build GUI (WinForms compile check)
         run: dotnet build setup-gui/BasaPOS-Setup.csproj -c Release --nologo
       - name: Publish single-file win-x64 (cross-build from Linux)
@@ -66,6 +74,11 @@ jobs:
           name: basapos-downloader
           retention-days: 14
           path: publish-dl/BasaPOS-Downloader.exe
+      - uses: actions/upload-artifact@v4
+        with:
+          name: basapos-keeper
+          retention-days: 14
+          path: publish-keeper/BasaPOS.Keeper.exe
 
   distro:
     needs: lint
@@ -147,12 +160,18 @@ jobs:
         with: { name: basapos-setup-gui, path: gui }
       - uses: actions/download-artifact@v4
         with: { name: basapos-downloader, path: dl }
+      - uses: actions/download-artifact@v4
+        with: { name: basapos-keeper, path: keeper }
       - name: Assemble payload folder
         run: |
           mkdir -p out/payload
           cp gui/BasaPOS-Setup.exe out/BasaPOS-Setup.exe
           cp dl/BasaPOS-Downloader.exe out/BasaPOS-Downloader.exe
+          cp keeper/BasaPOS.Keeper.exe out/payload/
+          cp payload/basapos.ico out/payload/
           cp parts/basapos-distro.tar.part-* parts/SHA256SUMS out/payload/
+          # installer verifies keeper files against these entries (Prereqs.AssertPayloadHashes)
+          (cd out/payload && sha256sum BasaPOS.Keeper.exe basapos.ico >> SHA256SUMS)
           curl -fsSL -o out/payload/wsl.msi \
             https://github.com/microsoft/WSL/releases/download/2.7.11/wsl.2.7.11.0.x64.msi
       - uses: actions/upload-artifact@v4

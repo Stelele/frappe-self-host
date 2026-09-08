@@ -51,9 +51,19 @@ public sealed class InstallOrchestrator(ISetupUi ui)
         // pinned WSL and only stacked into duplicate-key errors.)
         try { WslRunner.Wsl("--shutdown", 60); } catch { /* no VM running yet */ }
 
-        ui.Status("Registering autostart...");                            // 7
-        BootWrapper.Write();
+        ui.Status("Deploying keeper + registering autostart...");              // 7
+        // Delete (not just kill) first: the old task's repetition trigger
+        // could otherwise resurrect the keeper between KillAll and File.Copy
+        // and lock the exe image mid-copy. Register() recreates it below.
+        TaskRegistrar.Delete();
+        KeeperProcess.KillAll(); // stop any running keeper BEFORE overwriting its exe (locked image)
+        BootWrapper.Delete(); // remove legacy boot.cmd on upgrade (install.log keeps ProgramData alive)
+        Directory.CreateDirectory(Paths.BinDir);
+        File.Copy(Path.Combine(payload, "BasaPOS.Keeper.exe"),
+            Path.Combine(Paths.BinDir, "BasaPOS.Keeper.exe"), overwrite: true);
+        PowerPolicy.Apply(ui.Status);
         TaskRegistrar.Register();
+        ShortcutCreator.Create(payload);
 
         ui.Status("First boot: loading images + creating site (5-15 min)..."); // 8
         var boot = WslRunner.Wsl($"-d {Paths.DistroName} --exec /bin/true", 300);

@@ -1,0 +1,61 @@
+# CodeRabbit configuration — free Pro tier applies (public repo).
+# Takes effect once the CodeRabbit GitHub App is installed on the repo.
+# Schema: https://docs.coderabbit.ai/reference/configuration
+language: en-US
+
+# Docstring-coverage pre-merge check is off: this C# codebase documents via
+# XML comments on public surface selectively, and an 80%-of-functions gate
+# is miscalibrated for it (it warns on every PR with no path to green).
+pre_merge_checks:
+  docstrings:
+    mode: off
+
+reviews:
+  # chill = balanced signal/noise for a small team; raise to assertive if
+  # reviews feel thin, lower to quiet if they feel naggy.
+  profile: chill
+  auto_review:
+    enabled: true
+    auto_incremental_review: true
+  # Never auto-approve; a human merges.
+  request_changes_workflow: false
+  # Skip generated/binary noise.
+  path_filters:
+    - "!**/*.ico"
+    - "!**/*.tar.gz"
+    - "!**/*.part-*"
+    - "!appliance/dist/**"
+    - "!docs/superpowers/**"
+  path_instructions:
+    - path: "keeper/**/*.cs"
+      instructions: >
+        Hidden supervisor that must never die visibly. Flag: any throw out of
+        logging paths, blocking calls on the watchdog thread, P/Invoke struct
+        layouts that don't match Win32, swallowed exceptions that hide
+        crash-loops, unbounded waits without timeouts.
+    - path: "setup-gui/Install/**/*.cs"
+      instructions: >
+        Runs elevated at install/uninstall time on technician machines.
+        Flag: destructive file/registry/scheduled-task operations without
+        existence guards or clear error messages, ordering bugs (e.g. deleting
+        before stopping), hardcoded paths that should use Paths.cs.
+    - path: "setup-gui/e2e/*.ps1"
+      instructions: >
+        Windows-only CI drill scripts, never executed on Linux. Review for
+        PowerShell semantics only (error-action pitfalls, try/catch swallowing
+        its own throw, silently-true assertions). Do not flag Linux
+        incompatibility.
+    - path: ".github/workflows/*.yml"
+      instructions: >
+        Flag: artifact name mismatches between upload/download jobs, payload
+        layout drift vs InstallOrchestrator payload expectations, missing
+        needs: chain links.
+  tools:
+    shellcheck:
+      enabled: true
+    yamllint:
+      enabled: true
+    gitleaks:
+      enabled: true
+    actionlint:
+      enabled: true

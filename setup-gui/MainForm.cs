@@ -48,7 +48,7 @@ public sealed class MainForm : Form, ISetupUi
                     "Confirm purge", MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
                 if (confirm != DialogResult.Yes) return;
             }
-            new Uninstaller(this).Run(purge: _chkPurge.Checked);
+            new Uninstaller(this).Run(keepBackups: true, purge: _chkPurge.Checked);
         });
         _btnOpen.Click += (_, _) =>
             Process.Start(new ProcessStartInfo(Paths.SiteUrl) { UseShellExecute = true });

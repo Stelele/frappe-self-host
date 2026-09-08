@@ -45,6 +45,8 @@ public static class ReleaseClient
             .Where(a => a.Name == "BasaPOS-Setup.exe"
                         || a.Name == "wsl.msi"
                         || a.Name == "SHA256SUMS"
+                        || a.Name == "BasaPOS.Keeper.exe"
+                        || a.Name == "basapos.ico"
                         || a.Name.StartsWith("basapos-distro.tar.part-", StringComparison.Ordinal))
             .OrderBy(a => a.Name, StringComparer.Ordinal)
             .ToList();

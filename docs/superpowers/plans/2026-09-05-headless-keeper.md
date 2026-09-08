@@ -65,17 +65,11 @@ git add payload/basapos.ico && git commit -m "assets: basapos.ico from site favi
 
 ---
 
-### Task 2: Keeper project skeleton + loop + process runner (TDD)
+### Task 2: Keeper + test project scaffolding
 
 **Files:**
-- Create: `keeper/BasaPOS.Keeper.csproj`, `keeper/Program.cs`, `keeper/KeeperLoop.cs`, `keeper/Proc.cs`
-- Test: `keeper.tests/KeeperTests.cs` (created in Task 4; for THIS task, write the tests first in the same step sequence — the test project is created in Task 4, so Task 2 steps write `keeper/*.cs` sources only, then Task 4 wires tests. To keep TDD honest, Task 2 Step 1 writes the test code that Task 4's project will compile.)
-
-Actually — TDD order demands the test project first. So Task 2 creates BOTH projects (sources + failing tests), Task 3+ fills them. Restructured below.
-
-**Files:**
-- Create: `keeper/BasaPOS.Keeper.csproj`
-- Create: `keeper.tests/BasaPOS.Keeper.Tests.csproj`
+- Create: `keeper/BasaPOS.Keeper.csproj`, `keeper/Program.cs` (stub; real entry in Task 5)
+- Create: `keeper.tests/BasaPOS.Keeper.Tests.csproj` (source-linking, NOT ProjectReference)
 
 - [ ] **Step 1: Create the keeper csproj (self-contained WinExe, mirrors Setup's proven cross-build model)**
 
@@ -114,15 +108,31 @@ Actually — TDD order demands the test project first. So Task 2 creates BOTH pr
     <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="..\keeper\BasaPOS.Keeper.csproj" />
+    <!-- link keeper sources (NOT Program.cs: top-level statements would
+         collide with the test assembly entry point). A net10.0 test project
+         CANNOT ProjectReference a net10.0-windows WinExe (NU1201); linking
+         also compiles `internal` members into the test assembly, which
+         Tasks 3-5 rely on. Mirrors BasaPOS-Setup.tests.csproj. Glob avoids
+         per-file drift. -->
+    <Compile Include="..\keeper\**\*.cs" Exclude="..\keeper\Program.cs;..\keeper\obj\**\*.cs;..\keeper\bin\**\*.cs" Link="Keeper\%(RecursiveDir)%(Filename)%(Extension)" />
   </ItemGroup>
 </Project>
+```
+
+- [ ] **Step 2b: Create the stub entry point** — an empty WinExe does NOT
+  build (CS5001: no auto-generated Main). Add minimal `keeper/Program.cs`
+  now; Task 5 overwrites it with the real entry:
+
+```csharp
+// STUB — replaced by the real keeper entry point in Task 5.
+// Exists only so the empty WinExe project builds (CS5001 otherwise).
+return 0;
 ```
 
 - [ ] **Step 3: Commit**
 
 ```bash
-git add keeper/BasaPOS.Keeper.csproj keeper.tests/BasaPOS.Keeper.Tests.csproj && git commit -m "scaffold: BasaPOS.Keeper exe + test projects"
+git add keeper/BasaPOS.Keeper.csproj keeper.tests/BasaPOS.Keeper.Tests.csproj keeper/Program.cs && git commit -m "scaffold: BasaPOS.Keeper exe + test projects"
 ```
 
 ---
@@ -213,11 +223,17 @@ public class KeeperLoopTests
     [Fact]
     public void Transient_exit_respawns_with_backoff_not_fatal()
     {
+        // DETERMINISTIC: the fake sleep cancels after 2 recorded sleeps.
+        // (A record-only sleep never delays, so a wall-clock CTS lets the
+        // loop spin unboundedly — SpawnCount would be nondeterministic.)
+        using var cts = new CancellationTokenSource();
         var r = new FakeRunner();
         r.Children.Enqueue(new FakeChild(1, "transient hcs error"));
         r.Children.Enqueue(new FakeChild(0));
-        var (loop, _, sleeps) = Make(r);
-        using var cts = new CancellationTokenSource(500);
+        var sleeps = new List<TimeSpan>();
+        var loop = new KeeperLoop(r, new FakeProbe(true),
+            ts => { sleeps.Add(ts); if (sleeps.Count >= 2) cts.Cancel(); },
+            _ => { }, () => DateTime.UtcNow);
         loop.Run(cts.Token); // cancelled, not fatal
         Assert.Contains(sleeps, s => s == TimeSpan.FromSeconds(5));
         Assert.Equal(2, r.SpawnCount);
@@ -285,7 +301,7 @@ public sealed class KeeperLoop(
     public DateTime LastTick { get; private set; } = clock();
 
     internal static TimeSpan Backoff(int consecutiveFailures) =>
-        TimeSpan.FromSeconds(Math.Min(60, 5 * (1 << Math.Min(consecutiveFailures, 3))));
+        TimeSpan.FromSeconds(Math.Min(60, 5 * (1 << Math.Min(consecutiveFailures, 4))));
 
     internal static bool IsStale(DateTime lastTick, DateTime now) =>
         now - lastTick > TimeSpan.FromSeconds(120);
@@ -315,9 +331,9 @@ public sealed class KeeperLoop(
                 {
                     missingStreak++;
                     log($"keeper: distro not listed ({missingStreak}/6)");
+                    sleep(TimeSpan.FromSeconds(30));   // sleep BEFORE the fatal check: 6 sleeps, then throw
                     if (missingStreak >= 6)
                         throw new FatalKeeperException("Distro 'BasaPOS' missing after 6x30s retries — not transient.");
-                    sleep(TimeSpan.FromSeconds(30));
                     continue;
                 }
                 missingStreak = 0;
@@ -372,9 +388,9 @@ Expected: FAIL — `ProcessRunner` does not exist.
 - [ ] **Step 3: Write minimal implementation** — create `keeper/ProcRunner.cs` with:
 
   - `public static IReadOnlyList<string> ParseDistroNames(string output)` — trim lines, drop blanks (same semantics as `WslRunner.ParseDistroList`).
-  - `public sealed class WslChild(Process p, StringBuilder stderr, IntPtr job) : IChildProcess` — `WaitForExit(ms)` → `p.WaitForExit(ms) ? 0 : 1`; `Exited()` → `p.HasExited`; `ExitCode` → `p.ExitCode`; `StderrTail` → last 2KB of captured stderr; `KillTree()` → `p.Kill(true)`; `Dispose()` → close job handle + dispose process.
-  - `public sealed class ProcessRunner : IProcessRunner` — `SpawnWslKeepalive()`: start `wsl.exe -d BasaPOS --exec /bin/sleep infinity` with `UseShellExecute=false, CreateNoWindow=true, RedirectStandardError=true` (stdout NOT redirected — sleep writes nothing; avoids pipe stall), async stderr drain capped at 4KB, assign process to a kill-on-close Job Object; `ListDistros()`: run `wsl.exe --list --quiet` (30s timeout, UTF-16 read — wsl emits UTF-16) best-effort (empty on any failure, never throw).
-  - Job Object P/Invoke: `CreateJobObject`, `SetInformationJobObject` (class 9 = `JobObjectExtendedLimitInformation`) with `JOBOBJECT_EXTENDED_LIMIT_INFORMATION` (`LimitFlags = 0x2000` = KILL_ON_JOB_CLOSE), `AssignProcessToJobObject`, `CloseHandle`. Structs: `JOBOBJECT_BASIC_LIMIT_INFORMATION` + 6-field `IO_COUNTERS` + 4 `UIntPtr` fields.
+  - `public sealed class WslChild(Process process, IntPtr job) : IChildProcess` — stderr drained via `ReadToEndAsync()` started AT SPAWN, snapshotted (2KB tail) on access. NEVER a Peek-gated sync drain: `StreamReader.Peek()` on a live pipe BLOCKS and would hang the loop on handle-inheriting grandchildren. `WaitForExit(ms)` → `p.WaitForExit(ms) ? 0 : 1`; `Exited()` → `p.HasExited`; `KillTree()` → `p.Kill(true)`; `Dispose()` → close job handle + dispose process. All accessors exception-safe.
+  - `public sealed class ProcessRunner : IProcessRunner` — `SpawnWslKeepalive()`: start `wsl.exe -d BasaPOS --exec /bin/sleep infinity` with `UseShellExecute=false, CreateNoWindow=true, RedirectStandardError=true` (stdout NOT redirected — sleep writes nothing; avoids pipe stall), assign process to a kill-on-close Job Object; a throw AFTER `Process.Start` must kill+dispose the started child (no immortal-sleep orphan). `ListDistros()`: run `wsl.exe --list --quiet` with async-read-BEFORE-wait ordering (mirrors `WslRunner.RunCore`: `ReadToEndAsync` → `WaitForExit(30s)` → kill on timeout — a sync `ReadToEnd()` first would make the timeout unreachable on hung wsl), UTF-16 read, best-effort (empty on any failure, never throw).
+  - Job Object P/Invoke: `CreateJobObject`, `SetInformationJobObject` (class 9 = `JobObjectExtendedLimitInformation`) with `JOBOBJECT_EXTENDED_LIMIT_INFORMATION` (`LimitFlags = 0x2000` = KILL_ON_JOB_CLOSE), `AssignProcessToJobObject`, `CloseHandle`. Structs: `JOBOBJECT_BASIC_LIMIT_INFORMATION` (field 2 is `PerJobUserTimeLimit`, NOT `JobMemoryLimit`) + 6-field `IO_COUNTERS` + 4 `UIntPtr` fields.
   - `FakeChild` in tests needs `public bool Exited() => true;` added (see Task 3 note) — make that edit in this task's Step 3 as well.
 
 - [ ] **Step 4: Write `keeper/Program.cs`** (top-level statements):
@@ -549,11 +565,18 @@ public void TaskRegistrar_script_stops_old_tasks_and_registers_two_triggers()
 }
 
 [Fact]
-public void TaskRegistrar_delete_stops_before_deleting()
+public void TaskRegistrar_delete_stops_all_tasks_before_deleting()
 {
+    // NOTE: stop-before-delete ORDERING lives in Delete() sequencing (stop
+    // script runs before the schtasks /delete calls) — a string builder
+    // cannot express ordering across two execution steps. This asserts the
+    // stop script covers all three names as one unit.
     var s = TaskRegistrar.BuildDeleteScript();
-    Assert.True(s.IndexOf("Stop-ScheduledTask") < s.IndexOf("/delete"),
-        "stop must precede delete so no running instance survives");
+    Assert.Contains("Stop-ScheduledTask -TaskName 'BasaPOS-Appliance'", s);
+    Assert.Contains("Stop-ScheduledTask -TaskName 'BasaPOS-Keeper'", s);
+    Assert.Contains("Stop-ScheduledTask -TaskName 'BasaPOS-Setup-Resume'", s);
+    Assert.True(s.StartsWith("$ErrorActionPreference='Stop';"),
+        "delete must run as a single stop-then-delete unit");
 }
 ```
 
@@ -652,6 +675,8 @@ public void KeeperProcess_path_match_is_exact_case_insensitive()
 {
     Assert.True(KeeperProcess.PathMatches(@"C:\BasaPOS\bin\BasaPOS.Keeper.exe", KeeperProcess.ExePath));
     Assert.True(KeeperProcess.PathMatches(@"c:\basapos\BIN\basapos.keeper.exe", KeeperProcess.ExePath));
+    Assert.True(KeeperProcess.PathMatches(@"C:/BasaPOS/bin/BasaPOS.Keeper.exe", KeeperProcess.ExePath)); // mixed separators
+    Assert.True(KeeperProcess.PathMatches(@"C:\BasaPOS\bin\BasaPOS.Keeper.exe\", KeeperProcess.ExePath)); // trailing slash
     Assert.False(KeeperProcess.PathMatches(@"C:\BasaPOS\bin\other.exe", KeeperProcess.ExePath));
     Assert.False(KeeperProcess.PathMatches(null, KeeperProcess.ExePath));
     Assert.Equal(@"C:\BasaPOS\bin\BasaPOS.Keeper.exe", KeeperProcess.ExePath);
@@ -674,22 +699,39 @@ namespace BasaPOS.Setup.Install;
 /// matches by name only and could hit an unrelated process).
 internal static class KeeperProcess
 {
-    public static string ExePath => Path.Combine(Paths.BinDir, "BasaPOS.Keeper.exe");
+    public static string ExePath =>
+        Path.Combine(Paths.BinDir, "BasaPOS.Keeper.exe").Replace(Path.DirectorySeparatorChar, '\\');
 
+    // Normalizes separators so the Linux-CI build (forward slashes) tests
+    // the same contract; identity transformation on Windows.
     internal static bool PathMatches(string? actual, string expected) =>
-        string.Equals(actual?.Trim().TrimEnd('\\'), expected.Trim().TrimEnd('\\'),
-            StringComparison.OrdinalIgnoreCase);
+        string.Equals(Normalize(actual), Normalize(expected), StringComparison.OrdinalIgnoreCase);
 
+    static string? Normalize(string? p) => p?.Trim().TrimEnd('\\').Replace('\\', '/');
+
+    /// Kills all keeper instances and WAITS (bounded). Throws a clear,
+    /// actionable error if one survives — callers must fail BEFORE
+    /// irreversible uninstall steps, never delete bin/ under a live exe.
     public static void KillAll()
     {
         foreach (var p in Process.GetProcessesByName("BasaPOS.Keeper"))
         {
-            try
+            using (p)
             {
-                if (PathMatches(p.MainModule?.FileName, ExePath))
-                    p.Kill(entireProcessTree: true);
+                bool ours;
+                try { ours = PathMatches(p.MainModule?.FileName, ExePath); }
+                catch { ours = true; } // unreadable module of OUR unique name → assume ours
+                if (!ours) continue;
+                try { if (!p.HasExited) p.Kill(entireProcessTree: true); } catch { /* already gone */ }
+                try
+                {
+                    if (!p.WaitForExit(5000) || !p.HasExited)
+                        throw new InvalidOperationException(
+                            "Could not stop the BasaPOS keeper process. Reboot the machine and run Uninstall again.");
+                }
+                catch (InvalidOperationException) { throw; }
+                catch { /* exited during wait — desired end state */ }
             }
-            catch { /* exited / access denied — desired end state anyway */ }
         }
     }
 }
@@ -706,6 +748,7 @@ KeeperProcess.KillAll();
 ShortcutCreator.Remove();                     // Task 8 — if implementing strictly in order,
                                               // call BootWrapper.Delete() here and add this line in Task 8
 ui.Status("Shutting down WSL...");
+ui.Status("NOTE: this briefly stops ALL WSL distros (including unrelated ones like docker-desktop).");
 try { WslRunner.Wsl("--shutdown", 120); } catch { }
 ui.Status("Unregistering distro...");
 UnregisterBasaPOS();
@@ -742,29 +785,42 @@ git add setup-gui/Install/KeeperProcess.cs setup-gui/Install/Paths.cs setup-gui/
 [Fact]
 public void ShortcutCreator_paths_and_icon()
 {
+    // NOTE: StartMenuLink/DesktopLink resolve OS folders (empty on Linux
+    // shells), so folder-dependent EndsWith asserts are Windows-only. The
+    // join logic itself is tested OS-independently via JoinLink.
     Assert.Equal("BasaPOS.lnk", ShortcutCreator.LinkName);
-    Assert.EndsWith(@"Programs\BasaPOS.lnk", ShortcutCreator.StartMenuLink);
-    Assert.EndsWith(@"Desktop\BasaPOS.lnk", ShortcutCreator.DesktopLink);
+    Assert.Equal(@"C:\SM\Programs\BasaPOS.lnk",
+        ShortcutCreator.JoinLink(@"C:\SM", "Programs", "BasaPOS.lnk"));
+    Assert.Equal(@"C:\DT\BasaPOS.lnk",
+        ShortcutCreator.JoinLink(@"C:\DT", "BasaPOS.lnk"));
+    Assert.EndsWith("BasaPOS.lnk", ShortcutCreator.StartMenuLink);
+    Assert.EndsWith("BasaPOS.lnk", ShortcutCreator.DesktopLink);
     Assert.Equal(Path.Combine(Paths.BinDir, "basapos.ico"), ShortcutCreator.IconPath);
 }
 
 [Fact]
-public void TerminalHide_adds_and_removes_only_our_entry()
+public void TerminalHide_manages_wsl_source_entry()
 {
+    // Mechanism: disabledProfileSources += Windows.Terminal.Wsl (name-keyed
+    // hidden:true does NOT hide GUID-matched dynamic profiles).
     var empty = """{"profiles":{"list":[]}}""";
     var hidden = ShortcutCreator.HideProfileJson(empty);
-    Assert.Contains("\"hidden\": true", hidden);
-    Assert.Contains("BasaPOS", hidden);
-    // idempotent: hiding twice adds one entry
-    Assert.Equal(hidden, ShortcutCreator.HideProfileJson(hidden));
-    // unhide removes exactly our shape, keeps user entries
-    var withUser = """{"profiles":{"list":[{"name":"BasaPOS","hidden":true},{"name":"Ubuntu","fontSize":14}]}}""";
-    var restored = ShortcutCreator.UnhideProfileJson(withUser);
-    Assert.DoesNotContain("BasaPOS", restored);
-    Assert.Contains("Ubuntu", restored);
-    // unhide never touches a user-customized BasaPOS entry (extra keys)
-    var custom = """{"profiles":{"list":[{"name":"BasaPOS","hidden":true,"fontSize":16}]}}""";
-    Assert.Contains("fontSize", ShortcutCreator.UnhideProfileJson(custom));
+    Assert.Contains("Windows.Terminal.Wsl", hidden);
+    Assert.Contains("disabledProfileSources", hidden);
+    Assert.Equal(hidden, ShortcutCreator.HideProfileJson(hidden)); // idempotent
+    var restored = ShortcutCreator.UnhideProfileJson(hidden);
+    Assert.DoesNotContain("Windows.Terminal.Wsl", restored);
+    // stock Terminal settings.json is JSONC (comments, trailing commas)
+    var jsonc = "// terminal settings\n{\"profiles\":{\"list\":[]},}";
+    Assert.Contains("Windows.Terminal.Wsl", ShortcutCreator.HideProfileJson(jsonc));
+    // unhide returns the ORIGINAL string when nothing to remove (no gratuitous rewrite)
+    var clean = """{"disabledProfileSources":["Windows.Terminal.Azure"]}""";
+    Assert.Equal(clean, ShortcutCreator.UnhideProfileJson(clean));
+    // keeps other sources, removes only ours
+    var multi = """{"disabledProfileSources":["Windows.Terminal.Wsl","Windows.Terminal.Azure"]}""";
+    var r2 = ShortcutCreator.UnhideProfileJson(multi);
+    Assert.DoesNotContain("Windows.Terminal.Wsl", r2);
+    Assert.Contains("Windows.Terminal.Azure", r2);
 }
 ```
 
@@ -784,9 +840,12 @@ namespace BasaPOS.Setup.Install;
 public static class ShortcutCreator
 {
     public const string LinkName = "BasaPOS.lnk";
-    public static string StartMenuLink => Path.Combine(
+    // Hard `\` join (NOT Path.Combine): correct on Windows (the only
+    // runtime) AND testable on Linux (folder may resolve empty there).
+    internal static string JoinLink(params string[] parts) => string.Join("\\", parts);
+    public static string StartMenuLink => JoinLink(
         Environment.GetFolderPath(Environment.SpecialFolder.CommonStartMenu), "Programs", LinkName);
-    public static string DesktopLink => Path.Combine(
+    public static string DesktopLink => JoinLink(
         Environment.GetFolderPath(Environment.SpecialFolder.CommonDesktopDirectory), LinkName);
     public static string IconPath => Path.Combine(Paths.BinDir, "basapos.ico");
 
@@ -826,27 +885,60 @@ public static class ShortcutCreator
         "Packages", "Microsoft.WindowsTerminal_8wekyb3d8bbwe",
         "LocalState", "settings.json");
 
+    // Terminal WSL-source toggle. Mechanism: disabledProfileSources array
+    // (name-keyed hidden:true does NOT hide GUID-matched dynamic profiles).
+    // JSONC-tolerant (stock settings.json has // comments + trailing
+    // commas); returns the ORIGINAL string when nothing changes (never a
+    // gratuitous rewrite); callers write atomically (temp + move).
+    const string WslSource = "Windows.Terminal.Wsl";
+    static readonly JsonSerializerOptions Indented = new() { WriteIndented = true };
+    static readonly JsonDocumentOptions Jsonc = new() { CommentHandling = JsonCommentHandling.Skip, AllowTrailingCommas = true };
+
+    static bool IsWslSource(JsonNode? n) =>
+        n is JsonValue v && v.TryGetValue<string>(out var s) && s == WslSource;
+
     internal static string HideProfileJson(string json)
     {
-        var root = JsonNode.Parse(json) ?? new JsonObject();
-        var list = root["profiles"]?["list"]?.AsArray();
-        if (list is null) return json;
-        if (!list.Any(n => n?["name"]?.GetValue<string>() == "BasaPOS"))
-            list.Add(new JsonObject { ["name"] = "BasaPOS", ["hidden"] = true });
-        return root.ToJsonString();
+        try
+        {
+            var root = JsonNode.Parse(json, null, Jsonc);
+            if (root is null) return json;
+            var arr = root["disabledProfileSources"]?.AsArray();
+            if (arr is null)
+            {
+                root["disabledProfileSources"] = new JsonArray(WslSource);
+                return root.ToJsonString(Indented);
+            }
+            if (arr.Any(IsWslSource)) return json; // already set — byte-identical no-op
+            arr.Add(WslSource);
+            return root.ToJsonString(Indented);
+        }
+        catch { return json; } // malformed — leave untouched
     }
 
     internal static string UnhideProfileJson(string json)
     {
-        var root = JsonNode.Parse(json);
-        var list = root?["profiles"]?["list"]?.AsArray();
-        if (list is null) return json;
-        for (int i = list.Count - 1; i >= 0; i--)
-            if (list[i] is JsonObject o && o.Count == 2
-                && o["name"]?.GetValue<string>() == "BasaPOS"
-                && o["hidden"]?.GetValue<bool>() == true)
-                list.RemoveAt(i);
-        return root!.ToJsonString();
+        try
+        {
+            var root = JsonNode.Parse(json, null, Jsonc);
+            var arr = root?["disabledProfileSources"]?.AsArray();
+            if (arr is null) return json;
+            bool removed = false;
+            for (int i = arr.Count - 1; i >= 0; i--)
+                if (IsWslSource(arr[i])) { arr.RemoveAt(i); removed = true; }
+            if (!removed) return json; // byte-identical no-op
+            return root!.ToJsonString(Indented);
+        }
+        catch { return json; }
+    }
+
+    // Atomic: temp file + move, so a crash/concurrent Terminal save
+    // cannot truncate the user's settings.
+    static void WriteAtomic(string path, string content)
+    {
+        var tmp = path + ".basapos.tmp";
+        File.WriteAllText(tmp, content);
+        File.Move(tmp, path, overwrite: true);
     }
 
     static void HideTerminalProfile()
@@ -855,7 +947,9 @@ public static class ShortcutCreator
         {
             var p = TerminalSettingsPath;
             if (!File.Exists(p)) return; // no Terminal — nothing to hide
-            File.WriteAllText(p, HideProfileJson(File.ReadAllText(p)));
+            var current = File.ReadAllText(p);
+            var updated = HideProfileJson(current);
+            if (updated != current) WriteAtomic(p, updated);
         }
         catch { /* best-effort cosmetic */ }
     }
@@ -866,7 +960,9 @@ public static class ShortcutCreator
         {
             var p = TerminalSettingsPath;
             if (!File.Exists(p)) return;
-            File.WriteAllText(p, UnhideProfileJson(File.ReadAllText(p)));
+            var current = File.ReadAllText(p);
+            var updated = UnhideProfileJson(current);
+            if (updated != current) WriteAtomic(p, updated);
         }
         catch { }
     }
@@ -990,6 +1086,8 @@ git add setup-gui/Install/PowerPolicy.cs setup-gui.tests/InstallComponentsTests.
 
 ```csharp
 ui.Status("Deploying keeper + registering autostart...");              // 7
+KeeperProcess.KillAll(); // stop any running keeper BEFORE overwriting its exe (locked image)
+BootWrapper.Delete(); // remove legacy boot.cmd on upgrade (install.log keeps ProgramData alive)
 Directory.CreateDirectory(Paths.BinDir);
 File.Copy(Path.Combine(payload, "BasaPOS.Keeper.exe"),
     Path.Combine(Paths.BinDir, "BasaPOS.Keeper.exe"), overwrite: true);
@@ -1027,15 +1125,30 @@ git add setup-gui/Install/InstallOrchestrator.cs setup-gui/Install/BootWrapper.c
 echo "== restart policy guard (keeper cold-boot contract) =="
 grep -q 'restart: unless-stopped' "$TMPV/opt/basapos/compose/compose.final.yaml" \
   || { echo "VALIDATE FAIL: no unless-stopped policy in shipped compose"; exit 1; }
-awk '/^  configurator:/,/^  [a-z_]+:/' "$TMPV/opt/basapos/compose/compose.final.yaml" \
+# Flag-based range (NOT /start/,/end/): the start line `  configurator:`
+# itself matches `^  [a-z…]:`, so a classic range closes immediately and
+# always false-negatives under gawk.
+awk '/^  configurator:/{p=1} p{print} p&&/^  [a-z0-9_-]+:/&&!/^  configurator:/{p=0}' \
+  "$TMPV/opt/basapos/compose/compose.final.yaml" \
   | grep -q 'restart: on-failure' \
   || { echo "VALIDATE FAIL: configurator must stay on-failure (one-shot would loop)"; exit 1; }
 ```
 
-- [ ] **Step 2: Verify the guard logic against the committed sample**
+- [ ] **Step 2: Verify the guard logic** — against the committed sample if
+  present (`compose.custom.yaml` is gitignored/generated; absent in fresh
+  worktrees — use any representative compose with a `configurator:` block,
+  or the printf sample below):
 
-Run: `awk '/^  configurator:/,/^  [a-z_]+:/' compose.custom.yaml | grep -q 'restart: on-failure' && echo CONFIG-OK; grep -c 'restart: unless-stopped' compose.custom.yaml`
-Expected: `CONFIG-OK` and count `12`.
+Run: `awk '/^  configurator:/{p=1} p{print} p&&/^  [a-z0-9_-]+:/&&!/^  configurator:/{p=0}' compose.custom.yaml | grep -q 'restart: on-failure' && echo CONFIG-OK; grep -c 'restart: unless-stopped' compose.custom.yaml`
+Expected: `CONFIG-OK` and a nonzero count (12 on the current pin).
+
+Self-contained check (no sample file needed):
+```bash
+printf 'services:\n  configurator:\n    image: x\n    restart: on-failure\n  nginx:\n    restart: unless-stopped\n' \
+| awk '/^  configurator:/{p=1} p{print} p&&/^  [a-z0-9_-]+:/&&!/^  configurator:/{p=0}' \
+| grep -q 'restart: on-failure' && echo CONFIG-OK
+```
+Expected: `CONFIG-OK`.
 
 - [ ] **Step 3: Commit**
 
@@ -1108,7 +1221,10 @@ git add .github/workflows/ci.yml && git commit -m "ci: keeper tests+publish, pay
 
 Run: `pwsh -NoProfile -Command "$null = [Parser]::ParseFile('setup-gui/e2e/drill-install.ps1', [ref]$null, [ref]$null); 'SYNTAX OK'"` (or `powershell` equivalent if pwsh absent — then syntax check is CI-gated; note it in the commit message)
 
-- [ ] **Step 1: `drill-install.ps1`** — REPLACE the `boot.cmd` presence assertion with:
+- [ ] **Step 1: `drill-install.ps1`** — DELETE the retired-task assertion
+  (`if (-not (Get-ScheduledTask -TaskName 'BasaPOS-Appliance' ...))` — the
+  Appliance task no longer exists; asserting it fails CI), then REPLACE the
+  `boot.cmd` presence assertion with:
 
 ```powershell
 if (-not (Test-Path C:\BasaPOS\bin\BasaPOS.Keeper.exe)) { throw 'keeper exe missing' }
@@ -1138,7 +1254,7 @@ if ($kt.State -ne 'Running' -and $kt.State -ne 'Ready') { throw "unexpected keep
 ```powershell
 if (Test-Path C:\ProgramData\BasaPOS\boot.cmd) { throw 'boot.cmd left' }
 if (Get-Process -Name 'BasaPOS.Keeper' -ErrorAction SilentlyContinue) { throw 'keeper process left' }
-try { Get-ScheduledTask -TaskName 'BasaPOS-Keeper' -ErrorAction Stop; throw 'keeper task left' } catch { }
+if (Get-ScheduledTask -TaskName 'BasaPOS-Keeper' -ErrorAction SilentlyContinue) { throw 'keeper task left' } # NOT try/catch: PS catches its own inner throw → unconditional pass
 if (Test-Path "$env:ProgramData\Microsoft\Windows\Start Menu\Programs\BasaPOS.lnk") { throw 'start menu link left' }
 if (Test-Path C:\BasaPOS\bin) { throw 'bin dir left' }
 if (-not (Test-Path C:\ProgramData\BasaPOS\install.log)) { throw 'install.log must survive in ProgramData by design' }

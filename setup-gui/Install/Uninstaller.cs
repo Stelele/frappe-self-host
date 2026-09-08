@@ -12,12 +12,20 @@ public sealed class Uninstaller(ISetupUi ui)
     /// for test machines — never the default.</param>
     public void Run(bool keepBackups, bool purge)
     {
+        ui.Status("Stopping keeper task...");
+        TaskRegistrar.Delete();                       // stops instances, then deletes all 3 names
+        ui.Status("Killing keeper process...");
+        KeeperProcess.KillAll();
+        var staleLinks = ShortcutCreator.Remove();
+        if (staleLinks.Length > 0)
+            ui.Status("NOTE: could not remove shortcut(s), delete manually:\n" + string.Join("\n", staleLinks));
+        ui.Status("Shutting down WSL...");
+        ui.Status("NOTE: this briefly stops ALL WSL distros (including unrelated ones like docker-desktop).");
+        try { WslRunner.Wsl("--shutdown", 120); } catch { }
         ui.Status("Unregistering distro...");
         UnregisterBasaPOS();
         if (purge)
             PurgeAllDistros();
-        ui.Status("Removing autostart task...");
-        TaskRegistrar.Delete();
         BootWrapper.Delete();
         ui.Status("Removing hosts entry...");
         HostsFile.Remove();
@@ -39,7 +47,7 @@ public sealed class Uninstaller(ISetupUi ui)
         ui.Status("Untrusting certificate...");
         CertTrust.UntrustAllBasaPOS();
         ui.Status(keepBackups ? "Keeping C:\\BasaPOS\\backups ..." : "Full removal...");
-        foreach (var d in new[] { Paths.DistroDir, Paths.ConfigDir, Paths.LogsDir })
+        foreach (var d in new[] { Paths.DistroDir, Paths.ConfigDir, Paths.LogsDir, Paths.BinDir })
             if (Directory.Exists(d)) Directory.Delete(d, recursive: true);
         if (!keepBackups && Directory.Exists(Paths.InstallRoot))
             Directory.Delete(Paths.InstallRoot, recursive: true);

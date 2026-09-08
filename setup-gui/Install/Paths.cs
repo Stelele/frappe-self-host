@@ -6,6 +6,7 @@ public static class Paths
     public static readonly string DistroDir = Path.Combine(InstallRoot, "distro");
     public static readonly string ConfigDir = Path.Combine(InstallRoot, "config");
     public static readonly string LogsDir = Path.Combine(InstallRoot, "logs");
+    public static readonly string BinDir = Path.Combine(InstallRoot, "bin");
     public static readonly string BackupsDir = Path.Combine(InstallRoot, "backups");
     public static readonly string ProgramData = @"C:\ProgramData\BasaPOS";
     public const string DistroName = "BasaPOS";

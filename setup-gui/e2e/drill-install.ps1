@@ -17,8 +17,16 @@ if (-not ((Get-Content C:\Windows\System32\drivers\etc\hosts -Raw) -match 'basap
 if (-not (Test-Path C:\BasaPOS\config\credentials.txt)) { throw 'credentials missing' }
 if (-not (Test-Path C:\BasaPOS\config\basapos.crt))     { throw 'cert not exported' }
 if (-not (Test-Path C:\BasaPOS\config\version.txt))     { throw 'version.txt missing' }
-if (-not (Get-ScheduledTask -TaskName 'BasaPOS-Appliance' -ErrorAction SilentlyContinue)) { throw 'autostart task missing' }
-if (-not (Test-Path C:\ProgramData\BasaPOS\boot.cmd))   { throw 'boot.cmd missing' }
+if (-not (Test-Path C:\BasaPOS\bin\BasaPOS.Keeper.exe)) { throw 'keeper exe missing' }
+if (Test-Path C:\ProgramData\BasaPOS\boot.cmd)           { throw 'legacy boot.cmd must not be created' }
+$kt = Get-ScheduledTask -TaskName 'BasaPOS-Keeper'
+if ($kt.Triggers.Count -ne 2)                            { throw "keeper task needs 2 triggers, has $($kt.Triggers.Count)" }
+$xml = Export-ScheduledTask -TaskName 'BasaPOS-Keeper'
+if ($xml -notmatch 'PT5M')                               { throw 'repetition interval PT5M missing from task XML' }
+if ($xml -notmatch 'IgnoreNew')                          { throw 'MultipleInstances IgnoreNew missing from task XML' }
+if (-not (Get-Process -Name 'BasaPOS.Keeper' -ErrorAction SilentlyContinue)) { throw 'keeper process not running' }
+if (-not (Test-Path "$env:ProgramData\Microsoft\Windows\Start Menu\Programs\BasaPOS.lnk")) { throw 'start menu link missing' }
+if (-not (Test-Path C:\BasaPOS\bin\basapos.ico))         { throw 'shortcut icon missing' }
 $logFile = 'C:\ProgramData\BasaPOS\install.log'
 $log = Get-Content $logFile -Raw -ErrorAction SilentlyContinue
 if ($log -notmatch 'DONE password=') { throw 'no DONE marker in setup log' }
