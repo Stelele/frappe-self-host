@@ -64,11 +64,11 @@ public class KeeperLoopTests
     }
 
     [Fact]
-    public void Watchdog_stale_threshold_is_120s()
+    public void Watchdog_stale_threshold_is_180s()
     {
         var now = DateTime.UtcNow;
-        Assert.False(KeeperLoop.IsStale(now, now.AddSeconds(119)));
-        Assert.True(KeeperLoop.IsStale(now, now.AddSeconds(121)));
+        Assert.False(KeeperLoop.IsStale(now, now.AddSeconds(179)));
+        Assert.True(KeeperLoop.IsStale(now, now.AddSeconds(181)));
     }
 
     [Fact]

@@ -16,9 +16,14 @@ var watchdog = new Thread(() =>
         Thread.Sleep(10_000);
         if (KeeperLoop.IsStale(loop.LastTick, DateTime.UtcNow))
         {
-            // on-disk breadcrumb: FailFast itself leaves no log line, and the
-            // WER/EventViewer trail is hard to reach over a phone call
-            try { blog.Write("WATCHDOG: main loop stalled — FailFast"); } catch { }
+            // Bound the breadcrumb: a wedged filesystem must not wedge the
+            // watchdog — FailFast below must ALWAYS run.
+            try
+            {
+                var t = Task.Run(() => { try { blog.Write("WATCHDOG: main loop stalled — FailFast"); } catch { } });
+                t.Wait(2000);
+            }
+            catch { }
             Environment.FailFast("BasaPOS.Keeper main loop stalled");
         }
     }

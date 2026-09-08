@@ -33,6 +33,19 @@ public sealed class ProcessRunner : IProcessRunner
         catch { try { p.Kill(true); } catch { } p.Dispose(); throw; }
     }
 
+    /// A descendant holding the inherited stdout handle keeps the async read
+    /// incomplete after wsl.exe exits — never block the loop on it.
+    static string BoundedResult(Task<string> t)
+    {
+        try
+        {
+            if (t.Wait(5000)) return t.Result;
+        }
+        catch { /* faulted or abandoned — fall through */ }
+        t.ContinueWith(x => { var _ = x.Exception; }, TaskContinuationOptions.OnlyOnFaulted);
+        return "";
+    }
+
     public IReadOnlyList<string> ListDistros()
     {
         try
@@ -55,7 +68,7 @@ public sealed class ProcessRunner : IProcessRunner
                 return Array.Empty<string>();
             }
             p.WaitForExit(); // flush async read
-            return ParseDistroNames(outTask.Result);
+            return ParseDistroNames(BoundedResult(outTask));
         }
         catch { return Array.Empty<string>(); } // never throw: absence of data ≠ absence of distro is handled by retry logic
     }
@@ -82,7 +95,7 @@ public sealed class ProcessRunner : IProcessRunner
                 return "";
             }
             p.WaitForExit();
-            return outTask.Result;
+            return BoundedResult(outTask);
         }
         catch { return ""; }
     }
