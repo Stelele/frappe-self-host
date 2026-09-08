@@ -3,7 +3,18 @@
 set -euo pipefail
 TAR="${1:?usage: validate.sh <distro.tar.gz>}"
 
-LIST="$(gzip -dc "$TAR" | tar -tf -)"
+echo "== list + extract shipped metadata (single gunzip pass) =="
+TMPV="$(mktemp -d)"
+trap 'rm -rf "$TMPV"' EXIT
+# One decompression serves both consumers: the member listing and the 3-file
+# extraction (previously two full passes over the ~1.2GB tarball).
+gzip -dc "$TAR" \
+  | tee >(tar -tf - > "$TMPV/list") \
+  | tar -xf - -C "$TMPV" \
+      opt/basapos/image-digest.txt opt/basapos/compose-parity.yaml opt/basapos/compose/compose.final.yaml
+[ -s "$TMPV/list" ] || { echo "VALIDATE FAIL: member listing empty"; exit 1; }
+LIST="$(cat "$TMPV/list")"
+
 # docker export lists members WITHOUT a leading "/" (e.g. etc/wsl.conf),
 # so normalize each required path by stripping its leading slash before match.
 has() { local q="${1#/}"; grep -Fxq "$q" <<<"$LIST"; }
@@ -22,15 +33,6 @@ for f in \
   /opt/basapos/compose-parity.yaml ; do
   has "$f" || { echo "VALIDATE FAIL: missing $f"; exit 1; }
 done
-
-# docker export members have no leading "/"; strip it for tar -xOf lookups.
-X() { gzip -dc "$TAR" | tar -xOf - "${1#/}"; }
-
-echo "== extract shipped metadata (single pass) =="
-TMPV="$(mktemp -d)"
-trap 'rm -rf "$TMPV"' EXIT
-gzip -dc "$TAR" | tar -xf - -C "$TMPV" \
-  opt/basapos/image-digest.txt opt/basapos/compose-parity.yaml opt/basapos/compose/compose.final.yaml
 
 echo "== image digest (recorded at build) =="
 cat "$TMPV/opt/basapos/image-digest.txt"
