@@ -204,6 +204,15 @@ public class InstallComponentsTests
     }
 
     [Fact]
+    public void TaskRegistrar_survivor_script_queries_all_three_names()
+    {
+        var s = TaskRegistrar.BuildSurvivorScript();
+        Assert.Contains("BasaPOS-Appliance", s);
+        Assert.Contains("BasaPOS-Keeper", s);
+        Assert.Contains("BasaPOS-Setup-Resume", s);
+    }
+
+    [Fact]
     public void KeeperProcess_path_match_is_exact_case_insensitive()
     {
         Assert.True(KeeperProcess.PathMatches(@"C:\BasaPOS\bin\BasaPOS.Keeper.exe", KeeperProcess.ExePath));

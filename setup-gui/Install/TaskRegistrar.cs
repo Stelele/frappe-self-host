@@ -56,8 +56,12 @@ public static class TaskRegistrar
         WslRunner.RunAnsi("schtasks.exe", $"/delete /tn {LegacyResumeTask} /f", 60);
         // Verify: a failed delete (exit code swallowed above — absence is the
         // normal case) must not proceed to BinDir removal under a live task.
+        // Check BOTH exit code (nonzero + empty stdout = unverified) and output.
         var survivors = WslRunner.RunAnsi("powershell.exe",
             "-NoProfile -ExecutionPolicy Bypass -Command \"" + BuildSurvivorScript() + "\"", 60);
+        if (survivors.ExitCode != 0)
+            throw new InvalidOperationException(
+                $"verifying task removal failed ({survivors.ExitCode}): {survivors.Error.Trim()}");
         if (!string.IsNullOrWhiteSpace(survivors.Output))
             throw new InvalidOperationException(
                 "Could not remove scheduled task(s): " + survivors.Output.Trim() +
