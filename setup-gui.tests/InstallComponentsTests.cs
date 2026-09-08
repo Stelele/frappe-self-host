@@ -173,11 +173,10 @@ public class InstallComponentsTests
     public void TaskRegistrar_script_stops_old_tasks_and_registers_two_triggers()
     {
         var s = TaskRegistrar.BuildRegisterScript("tech", @"C:\BasaPOS\bin\BasaPOS.Keeper.exe");
-        // preamble tolerates missing tasks (fresh install): per-task try/catch
-        Assert.Contains("Stop-ScheduledTask -TaskName $n", s);
-        Assert.Contains("Unregister-ScheduledTask -TaskName $n", s);
-        Assert.Contains("try {", s);
-        Assert.Contains("'BasaPOS-Appliance','BasaPOS-Keeper'", s);
+        // creation-only script: legacy clearing happens via schtasks in
+        // Register() (PS stop/unregister fails on taskless machines)
+        Assert.DoesNotContain("Stop-ScheduledTask", s);
+        Assert.DoesNotContain("Unregister-ScheduledTask", s);
         Assert.Contains("New-ScheduledTaskTrigger -AtLogOn", s);
         Assert.Contains("RepetitionInterval", s);
         Assert.Contains("New-TimeSpan -Minutes 5", s);
@@ -187,15 +186,12 @@ public class InstallComponentsTests
     }
 
     [Fact]
-    public void TaskRegistrar_delete_stops_all_tasks_before_deleting()
-    {        var s = TaskRegistrar.BuildDeleteScript();
-        // missing tasks must NOT fail the stop (fresh install/uninstall):
-        // per-task try/catch swallows every severity
-        Assert.Contains("Stop-ScheduledTask -TaskName $n", s);
-        Assert.Contains("try {", s);
-        Assert.Contains("'BasaPOS-Appliance','BasaPOS-Keeper','BasaPOS-Setup-Resume'", s);
-        Assert.True(s.StartsWith("$ErrorActionPreference='Stop';"),
-            "delete must run as a single stop-then-delete unit");
+    public void TaskRegistrar_task_names_match_drill_contract()
+    {
+        // Delete()/Register() clear by name via schtasks; the e2e drills
+        // assert the same names — a rename must update both sides.
+        Assert.Equal("BasaPOS-Appliance", TaskRegistrar.TaskName);
+        Assert.Equal("BasaPOS-Keeper", TaskRegistrar.KeeperTaskName);
     }
 
     [Fact]
@@ -205,15 +201,6 @@ public class InstallComponentsTests
         Assert.Contains("o''brien", s);
         Assert.Contains(@"C:\BasaPOS''\bin\BasaPOS.Keeper.exe", s);
         Assert.DoesNotContain("o'brien", s.Replace("o''brien", ""));
-    }
-
-    [Fact]
-    public void TaskRegistrar_survivor_script_queries_all_three_names()
-    {
-        var s = TaskRegistrar.BuildSurvivorScript();
-        Assert.Contains("BasaPOS-Appliance", s);
-        Assert.Contains("BasaPOS-Keeper", s);
-        Assert.Contains("BasaPOS-Setup-Resume", s);
     }
 
     [Fact]

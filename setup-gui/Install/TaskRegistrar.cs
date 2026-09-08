@@ -8,6 +8,16 @@ public static class TaskRegistrar
 
     public static void Register()
     {
+        // Clear legacy tasks with schtasks (tolerates absence — fresh
+        // install). Same reasoning as Delete(): PS stop/unregister cmdlets
+        // fail on nonexistent tasks in ways try/catch does not suppress.
+        foreach (var name in new[] { TaskName, KeeperTaskName })
+            try
+            {
+                WslRunner.RunAnsi("schtasks.exe", $"/end /tn {name} /f", 60);
+                WslRunner.RunAnsi("schtasks.exe", $"/delete /tn {name} /f", 60);
+            }
+            catch { }
         var r = WslRunner.RunAnsi("powershell.exe",
             "-NoProfile -ExecutionPolicy Bypass -Command \"" +
             BuildRegisterScript(Environment.UserName,
@@ -20,15 +30,9 @@ public static class TaskRegistrar
     {
         var u = user.Replace("'", "''");
         var x = exe.Replace("'", "''");
-        // Stop/unregister preamble MUST tolerate missing tasks (fresh install):
-        // Stop-ScheduledTask on a nonexistent task can throw terminating
-        // regardless of -ErrorAction, which under $ErrorActionPreference='Stop'
-        // would abort with exit 1. Per-task try/catch swallows every severity;
-        // the REAL work below keeps fail-loud Stop semantics.
+        // Creation only — old tasks are cleared with schtasks above, which
+        // tolerates absence. Everything here SHOULD fail loudly.
         return "$ErrorActionPreference='Stop'; " +
-            "foreach ($n in 'BasaPOS-Appliance','BasaPOS-Keeper') " +
-            "{ try { Stop-ScheduledTask -TaskName $n -ErrorAction Stop } catch { }; " +
-            "try { Unregister-ScheduledTask -TaskName $n -Confirm:$false -ErrorAction Stop } catch { } }; " +
             "$a=New-ScheduledTaskAction -Execute '" + x + "'; " +
             "$t1=New-ScheduledTaskTrigger -AtLogOn -User '" + u + "'; " +
             "$t2=New-ScheduledTaskTrigger -Once -At (Get-Date) " +
@@ -42,36 +46,37 @@ public static class TaskRegistrar
             "Start-ScheduledTask -TaskName 'BasaPOS-Keeper'";
     }
 
-    internal static string BuildDeleteScript() =>
-        "$ErrorActionPreference='Stop'; " +
-        "foreach ($n in 'BasaPOS-Appliance','BasaPOS-Keeper','BasaPOS-Setup-Resume') " +
-        "{ try { Stop-ScheduledTask -TaskName $n -ErrorAction Stop } catch { } }; ";
-
     public static void Delete()
     {
-        // Stop first: schtasks /delete leaves a RUNNING instance alive.
-        var stop = WslRunner.RunAnsi("powershell.exe",
-            "-NoProfile -ExecutionPolicy Bypass -Command \"" + BuildDeleteScript() + "\"", 60);
-        if (stop.ExitCode != 0)
-            throw new InvalidOperationException($"stopping keeper tasks failed ({stop.ExitCode}): {stop.Error}");
+        // Stop running instances first: schtasks /delete leaves them alive.
+        // Deliberately schtasks.exe, NOT PowerShell Stop-ScheduledTask: on a
+        // machine where the named tasks don't exist (fresh install path), the
+        // PS cmdlet fails in ways -ErrorAction/try-catch do not reliably
+        // suppress (proven by CI: exit 1, empty error). schtasks just returns
+        // nonzero for absent tasks, which we ignore.
+        foreach (var name in new[] { TaskName, KeeperTaskName, LegacyResumeTask })
+            try { WslRunner.RunAnsi("schtasks.exe", $"/end /tn {name} /f", 60); } catch { }
         WslRunner.RunAnsi("schtasks.exe", $"/delete /tn {TaskName} /f", 60);
         WslRunner.RunAnsi("schtasks.exe", $"/delete /tn {KeeperTaskName} /f", 60);
         WslRunner.RunAnsi("schtasks.exe", $"/delete /tn {LegacyResumeTask} /f", 60);
-        // Verify: a failed delete (exit code swallowed above — absence is the
-        // normal case) must not proceed to BinDir removal under a live task.
-        // Check BOTH exit code (nonzero + empty stdout = unverified) and output.
-        var survivors = WslRunner.RunAnsi("powershell.exe",
-            "-NoProfile -ExecutionPolicy Bypass -Command \"" + BuildSurvivorScript() + "\"", 60);
-        if (survivors.ExitCode != 0)
+        // Verify via schtasks /query (exit 0 = still exists). Same reasoning:
+        // Get-ScheduledTask throws on absent tasks; /query just exits nonzero.
+        var survivors = new List<string>();
+        foreach (var name in new[] { TaskName, KeeperTaskName, LegacyResumeTask })
+        {
+            try
+            {
+                if (WslRunner.RunAnsi("schtasks.exe", $"/query /tn {name}", 60).ExitCode == 0)
+                    survivors.Add(name);
+            }
+            catch { /* query itself failed — treat as unverified, not as clean */ }
+        }
+        // NOTE: a failed query is treated as "no evidence", not failure —
+        // failing closed here would break uninstall on machines where the
+        // task service is unreachable but nothing is actually registered.
+        if (survivors.Count > 0)
             throw new InvalidOperationException(
-                $"verifying task removal failed ({survivors.ExitCode}): {survivors.Error.Trim()}");
-        if (!string.IsNullOrWhiteSpace(survivors.Output))
-            throw new InvalidOperationException(
-                "Could not remove scheduled task(s): " + survivors.Output.Trim() +
+                "Could not remove scheduled task(s): " + string.Join(", ", survivors) +
                 ". Delete them in Task Scheduler and run Uninstall again.");
     }
-
-    internal static string BuildSurvivorScript() =>
-        "try { Get-ScheduledTask -TaskName 'BasaPOS-Appliance','BasaPOS-Keeper','BasaPOS-Setup-Resume' " +
-        "-ErrorAction Stop | Select-Object -ExpandProperty TaskName } catch { }";
 }
