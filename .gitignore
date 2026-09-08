@@ -35,3 +35,6 @@ keeper.tests/bin/
 keeper.tests/obj/
 downloader/bin/
 downloader/obj/
+
+# git worktrees
+.worktrees/
