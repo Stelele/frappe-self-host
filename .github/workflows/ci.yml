@@ -277,7 +277,9 @@ jobs:
           }
           # same layout the old payload job shipped: tarball entry + parts + keeper/ico
           $lines = @()
-          $lines += "$((Get-FileHash -Algorithm SHA256 distro.tar.gz).Hash.ToLowerInvariant())  basapos-distro.tar.gz.tmp"
+          # installer validates the reconstructed tarball against THIS key
+          # (AssertPayloadHashes looks up basapos-distro.tar.gz, not .tmp)
+          $lines += "$((Get-FileHash -Algorithm SHA256 distro.tar.gz).Hash.ToLowerInvariant())  basapos-distro.tar.gz"
           foreach ($p in Get-ChildItem out/payload/basapos-distro.tar.part-* | Sort-Object Name) {
             $lines += "$((Get-FileHash -Algorithm SHA256 $p.FullName).Hash.ToLowerInvariant())  $($p.Name)"
           }
