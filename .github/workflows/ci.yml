@@ -210,8 +210,10 @@ jobs:
             $gh = "https://api.github.com/repos/stelele/frappe-self-host"
             $id = $null
             for ($i = 0; $i -lt 720 -and -not $id; $i++) {
-              $id = & gh api "$gh/actions/runs/$env:GITHUB_RUN_ID/artifacts" `
-                --jq -r '.artifacts[] | select(.name=="basapos-distro") | .id' 2>$null |
+              # NOTE: `--jq EXPR` is ONE arg pair in pwsh — a bare `-r` between
+              # them becomes the jq program and the expr a 2nd positional, so gh
+              # aborts with 'accepts 1 arg(s), received 2' and $id stays empty.
+              $id = & gh api "$gh/actions/runs/$env:GITHUB_RUN_ID/artifacts" --jq '.artifacts[] | select(.name=="basapos-distro") | .id' 2>$null |
                 Select-Object -First 1
               if (-not $id) { Start-Sleep -Seconds 5 }
             }
