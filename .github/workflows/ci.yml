@@ -161,6 +161,10 @@ jobs:
           DISTRO_TAG: sha256-${{ steps.hash.outputs.DISTRO_SHA }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          # build.sh always deletes the full tarball after splitting (disk/artifact
+          # budget — GUI/drill consume parts). Reconstruct it here just-in-time for
+          # the GHCR cache push; the GitHub artifact still ships parts only.
+          (cd appliance/dist && cat basapos-distro.tar.part-* > basapos-distro.tar.gz.tmp)
           oras login ghcr.io --username "$GITHUB_ACTOR" --password "$GH_TOKEN"
           oras push "$GHCR:$DISTRO_TAG" \
             --artifact-type application/vnd.frappe.distro.tarball-gz \
