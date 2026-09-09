@@ -8,11 +8,22 @@ on:
 
 permissions:
   contents: read
+  packages: read
 
 concurrency:
   # keyed by event so a manual dispatch can't cancel an in-flight push pipeline
   group: ci-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
+
+# Two lanes, one cache.
+#   LANE A (distro): content-hash → GHCR. Cache miss = rebuild + Linux
+#   firstboot smoke (kill+resume) + push sha256-<hash> (+ repoint :main-green).
+#   LANE B (windows-drill): after [lint,gui], against the pinned CACHED distro
+#   (:main-green) in parallel with lane A — the old 15-18m drill fleet is gone.
+#   release: tags only, gates on [gui, distro, windows-drill], direct publish.
+#
+# Target: every event green < 10 min in steady state (cache active). The very
+# first master run seeds the cache and runs serial (one-time bootstrap).
 
 jobs:
   lint:
@@ -83,116 +94,205 @@ jobs:
   distro:
     needs: lint
     runs-on: ubuntu-latest
-    timeout-minutes: 150
+    # build ~11m + smoke (first boot+stack ~4m, then kill/resume re-runs the
+    # full idempotent new-site + app install under vfs, capped by
+    # SMOKE_MAX_RESUME=1500s). Cache-MISS PR runs are the expensive ones; the
+    # main-green cache makes this ~2m on master.
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      cache-hit: ${{ steps.cache-check.outputs.cache-hit }}
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: true
+      - name: Install oras
+        run: |
+          curl -fsSL -o /tmp/oras.tgz https://github.com/oras-project/oras/releases/download/v1.2.2/oras_1.2.2_linux_amd64.tar.gz
+          tar -xzf /tmp/oras.tgz -C /usr/local/bin oras
+          oras version
+      - name: Compute distro content hash
+        id: hash
+        run: echo "DISTRO_SHA=$(bash scripts/distro-hash.sh)" >> "$GITHUB_OUTPUT"
+      - name: GHCR cache probe
+        id: cache-check
+        env:
+          DISTRO_TAG: sha256-${{ steps.hash.outputs.DISTRO_SHA }}
+        run: |
+          if oras manifest fetch "ghcr.io/stelele/frappe-self-host/basapos-distro:$DISTRO_TAG" >/dev/null 2>&1; then
+            echo "cache-hit=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "cache-hit=false" >> "$GITHUB_OUTPUT"
+          fi
       - name: Free disk + report
+        if: steps.cache-check.outputs.cache-hit != 'true'
         run: |
           docker system prune -af >/dev/null 2>&1 || true
           df -h /
-      - name: Build, validate, split
+      - name: Install pigz
+        if: steps.cache-check.outputs.cache-hit != 'true'
+        run: sudo apt-get update && sudo apt-get install -y pigz
+      - name: Build + validate + split
+        if: steps.cache-check.outputs.cache-hit != 'true'
         run: bash appliance/build.sh
+      - name: Firstboot convergence smoke (Linux, mid-stack kill + resume)
+        if: steps.cache-check.outputs.cache-hit != 'true'
+        run: bash appliance/smoke-firstboot.sh basapos-distro:16
+      - name: Reconstruct tarball from cache
+        if: steps.cache-check.outputs.cache-hit == 'true'
+        run: |
+          mkdir -p appliance/dist
+          oras pull "ghcr.io/stelele/frappe-self-host/basapos-distro:sha256-${{ steps.hash.outputs.DISTRO_SHA }}"
+          f=$(find . -maxdepth 1 -type f \( -name 'basapos-distro.tar.gz.tmp' -o -name '*.gz' \) | head -1)
+          if [ -z "$f" ]; then
+            echo "cache pull produced no tarball"; ls -la; exit 1
+          fi
+          mv "$f" appliance/dist/basapos-distro.tar.gz.tmp
+          bash appliance/validate.sh appliance/dist/basapos-distro.tar.gz.tmp
+          (cd appliance/dist \
+            && split -b 1900m -d basapos-distro.tar.gz.tmp basapos-distro.tar.part- \
+            && sha256sum basapos-distro.tar.gz.tmp basapos-distro.tar.part-* > SHA256SUMS)
+      - name: Publish content tag (skip on PR — the master run seeds the cache)
+        if: steps.cache-check.outputs.cache-hit != 'true' && github.event_name != 'pull_request'
+        env:
+          GHCR: ghcr.io/stelele/frappe-self-host/basapos-distro
+          DISTRO_TAG: sha256-${{ steps.hash.outputs.DISTRO_SHA }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          oras login ghcr.io --username "$GITHUB_ACTOR" --password "$GH_TOKEN"
+          oras push "$GHCR:$DISTRO_TAG" \
+            --artifact-type application/vnd.frappe.distro.tarball-gz \
+            appliance/dist/basapos-distro.tar.gz.tmp:application/gzip
+          oras tag "$GHCR:$DISTRO_TAG" main-green
       - uses: actions/upload-artifact@v4
         with:
           name: basapos-distro
           retention-days: 14
           path: appliance/dist/
 
-  firstboot-drill:
-    needs: distro
-    if: github.event_name != 'pull_request'
+  windows-drill:
+    needs: [lint, gui]
     runs-on: windows-latest
-    timeout-minutes: 120
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - name: boot-loaded
-            start: 0
-            end: 1
-            skipbackup: "-SkipBackup"
-          - name: env-stack
-            start: 2
-            end: 3
-            skipbackup: "-SkipBackup"
-          - name: site-cert
-            start: 4
-            end: 5
-            skipbackup: "-SkipBackup"
-          - name: booted-done
-            start: 6
-            end: 7
-            skipbackup: ""
+    # cache-miss bootstrap: on PRs the distro job (up to ~40m in the worst
+    # vfs-new-site case, no ghcr cache seeded) publishes NO ghcr cache, so this
+    # lane polls for that run's artifact, then assembles + drills.
+    timeout-minutes: 75
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
-        with:
-          name: basapos-distro
-          path: parts
-      - name: Stitch + verify distro tarball
+      - name: Install oras
         shell: pwsh
-        run: powershell -NoProfile -ExecutionPolicy Bypass -File setup-gui/e2e/stitch-parts.ps1 -PartsDir parts -OutFile distro.tar.gz
-      - name: Kill-at-every-phase convergence drill (${{ matrix.name }})
-        shell: pwsh
-        run: powershell -NoProfile -ExecutionPolicy Bypass -File setup-gui/e2e/drill-firstboot.ps1 -DistroTar distro.tar.gz -Start ${{ matrix.start }} -End ${{ matrix.end }} ${{ matrix.skipbackup }}
-      - name: Drill logs on failure
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: firstboot-drill-logs-${{ matrix.name }}
-          path: |
-            C:/BasaPOS/logs/**
-            C:/BasaPOS/backups/**
-          if-no-files-found: ignore
-
-  payload:
-    needs: [distro, gui]
-    if: github.event_name != 'pull_request'
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
-        with: { name: basapos-distro, path: parts }
+        run: |
+          Invoke-WebRequest -Uri https://github.com/oras-project/oras/releases/download/v1.2.2/oras_1.2.2_windows_amd64.zip -OutFile oras.zip
+          Expand-Archive oras.zip -DestinationPath oras-dir
+          Add-Content -Path $env:GITHUB_PATH -Value "$pwd\oras-dir" -Encoding ascii
       - uses: actions/download-artifact@v4
         with: { name: basapos-setup-gui, path: gui }
       - uses: actions/download-artifact@v4
         with: { name: basapos-downloader, path: dl }
       - uses: actions/download-artifact@v4
         with: { name: basapos-keeper, path: keeper }
-      - name: Assemble payload folder
+      - name: Pull cached distro (main-green) or bootstrap from this run
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          mkdir -p out/payload
-          cp gui/BasaPOS-Setup.exe out/BasaPOS-Setup.exe
-          cp dl/BasaPOS-Downloader.exe out/BasaPOS-Downloader.exe
-          cp keeper/BasaPOS.Keeper.exe out/payload/
-          cp payload/basapos.ico out/payload/
-          cp parts/basapos-distro.tar.part-* parts/SHA256SUMS out/payload/
+          oras login ghcr.io --username "$env:GITHUB_ACTOR" --password "$env:GH_TOKEN"
+          oras pull ghcr.io/stelele/frappe-self-host/basapos-distro:main-green
+          if ($LASTEXITCODE -eq 0) {
+            $p = Get-ChildItem -File | Where-Object { $_.Name -match 'basapos-distro|application_gzip' } | Select-Object -First 1
+            if (-not $p) { Write-Error "unexpected oras pull artifact name"; Get-ChildItem -File; exit 1 }
+            Move-Item -Force $p.FullName distro.tar.gz
+            Write-Host "distro.tar.gz from GHCR :main-green"
+          } else {
+            Write-Host "bootstrap: :main-green not cached yet - using this run's distro artifact"
+            $gh = "https://api.github.com/repos/stelele/frappe-self-host"
+            $id = $null
+            for ($i = 0; $i -lt 720 -and -not $id; $i++) {
+              # NOTE: `--jq EXPR` is ONE arg pair in pwsh — a bare `-r` between
+              # them becomes the jq program and the expr a 2nd positional, so gh
+              # aborts with 'accepts 1 arg(s), received 2' and $id stays empty.
+              $id = & gh api "$gh/actions/runs/$env:GITHUB_RUN_ID/artifacts" --jq '.artifacts[] | select(.name=="basapos-distro") | .id' 2>$null |
+                Select-Object -First 1
+              if (-not $id) { Start-Sleep -Seconds 5 }
+            }
+            if (-not $id) { Write-Error "bootstrap: this run produced no distro artifact"; exit 1 }
+            New-Item -ItemType Directory -Path tmp-distro | Out-Null
+            # gh api has NO -o flag and pwsh > corrupts binary; use curl.exe for
+            # the (redirecting, SAS-signed) artifact blob
+            curl.exe -sSL -H "Authorization: Bearer $env:GH_TOKEN" -o tmp-distro/distro.zip "$gh/actions/artifacts/$id/zip"
+            if ($LASTEXITCODE -ne 0 -or -not (Test-Path tmp-distro/distro.zip)) {
+              Write-Error "artifact zip download failed (curl rc=$LASTEXITCODE)"; exit 1
+            }
+            Expand-Archive tmp-distro/distro.zip -DestinationPath tmp-distro/unz
+            $expect = @{}
+            Get-Content tmp-distro/unz/SHA256SUMS | ForEach-Object {
+              if ($_ -match '^([0-9a-f]{64})\s{2}(.+)$') { $expect[$matches[2]] = $matches[1] }
+            }
+            $parts = Get-ChildItem tmp-distro/unz/basapos-distro.tar.part-* | Sort-Object Name
+            foreach ($p in $parts) {
+              $h = (Get-FileHash -Algorithm SHA256 $p.FullName).Hash.ToLowerInvariant()
+              if ($expect[$p.Name] -ne $h) { Write-Error "SHA256SUMS mismatch: $($p.Name)"; exit 1 }
+            }
+            $dst = [IO.File]::Create("distro.tar.gz")
+            try {
+              foreach ($p in $parts) {
+                $in = [IO.File]::OpenRead($p.FullName)
+                try { $in.CopyTo($dst) } finally { $in.Dispose() }
+              }
+            } finally { $dst.Close() }
+            if ($expect['basapos-distro.tar.gz.tmp'] -and
+                (Get-FileHash -Algorithm SHA256 distro.tar.gz).Hash.ToLowerInvariant() -ne $expect['basapos-distro.tar.gz.tmp']) {
+              Write-Error "reassembled tarball hash mismatch"; exit 1
+            }
+            Write-Host "bootstrap fallback OK: distro.tar.gz from this run's artifact"
+          }
+      - name: Assemble payload
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path out/payload | Out-Null
+          Copy-Item gui/BasaPOS-Setup.exe out/
+          Copy-Item dl/BasaPOS-Downloader.exe out/
+          Copy-Item keeper/BasaPOS.Keeper.exe out/payload/
+          Copy-Item payload/basapos.ico out/payload/
+          $chunk = 1900L * 1024L * 1024L
+          $src = [IO.File]::OpenRead("distro.tar.gz")
+          $buf = New-Object byte[] (4194304)
+          $idx = 0
+          $part = [IO.File]::Create("out/payload/basapos-distro.tar.part-{0:D2}" -f $idx)
+          try {
+            while ($true) {
+              if ($part.Position -ge $chunk) {
+                $part.Close()
+                $idx++
+                $part = [IO.File]::Create("out/payload/basapos-distro.tar.part-{0:D2}" -f $idx)
+              }
+              $read = $src.Read($buf, 0, $buf.Length)
+              if ($read -le 0) { break }
+              $part.Write($buf, 0, $read)
+            }
+          } finally {
+            $part.Close(); $src.Close()
+          }
+          # same layout the old payload job shipped: tarball entry + parts + keeper/ico
+          $lines = @()
+          # installer validates the reconstructed tarball against THIS key
+          # (AssertPayloadHashes looks up basapos-distro.tar.gz, not .tmp)
+          $lines += "$((Get-FileHash -Algorithm SHA256 distro.tar.gz).Hash.ToLowerInvariant())  basapos-distro.tar.gz"
+          foreach ($p in Get-ChildItem out/payload/basapos-distro.tar.part-* | Sort-Object Name) {
+            $lines += "$((Get-FileHash -Algorithm SHA256 $p.FullName).Hash.ToLowerInvariant())  $($p.Name)"
+          }
           # installer verifies keeper files against these entries (Prereqs.AssertPayloadHashes)
-          (cd out/payload && sha256sum BasaPOS.Keeper.exe basapos.ico >> SHA256SUMS)
-          curl -fsSL -o out/payload/wsl.msi \
+          $lines += "$((Get-FileHash -Algorithm SHA256 out/payload/BasaPOS.Keeper.exe).Hash.ToLowerInvariant())  BasaPOS.Keeper.exe"
+          $lines += "$((Get-FileHash -Algorithm SHA256 out/payload/basapos.ico).Hash.ToLowerInvariant())  basapos.ico"
+          $lines | Out-File out/payload/SHA256SUMS -Encoding ascii
+          curl.exe -fsSL -o out/payload/wsl.msi `
             https://github.com/microsoft/WSL/releases/download/2.7.11/wsl.2.7.11.0.x64.msi
-      - uses: actions/upload-artifact@v4
-        with: { name: basapos-payload, retention-days: 14, path: out }
-
-  e2e-windows:
-    needs: payload
-    if: github.event_name != 'pull_request'
-    runs-on: windows-latest
-    timeout-minutes: 90
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
-        with: { name: basapos-payload, path: out }
-      - name: Drill 1/3 - install
+      - name: Drill - install
         shell: pwsh
         run: powershell -NoProfile -ExecutionPolicy Bypass -File setup-gui/e2e/drill-install.ps1 -SetupExe (Resolve-Path out/BasaPOS-Setup.exe) -PayloadDir (Resolve-Path out/payload)
-      - name: Drill 2/3 - reinstall
-        shell: pwsh
-        run: powershell -NoProfile -ExecutionPolicy Bypass -File setup-gui/e2e/drill-reinstall.ps1 -SetupExe (Resolve-Path out/BasaPOS-Setup.exe) -PayloadDir (Resolve-Path out/payload)
-      - name: Drill 3/3 - uninstall
+      - name: Drill - uninstall
         shell: pwsh
         run: powershell -NoProfile -ExecutionPolicy Bypass -File setup-gui/e2e/drill-uninstall.ps1 -SetupExe (Resolve-Path out/BasaPOS-Setup.exe)
       - name: Drill logs on failure
@@ -207,16 +307,34 @@ jobs:
           if-no-files-found: ignore
 
   release:
-    needs: [e2e-windows, firstboot-drill]
+    needs: [gui, distro, windows-drill]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
-        with: { name: basapos-payload, path: out }
+        with: { name: basapos-setup-gui, path: gui }
+      - uses: actions/download-artifact@v4
+        with: { name: basapos-downloader, path: dl }
+      - uses: actions/download-artifact@v4
+        with: { name: basapos-keeper, path: keeper }
+      - uses: actions/download-artifact@v4
+        with: { name: basapos-distro, path: parts }
+      - name: Assemble release payload
+        run: |
+          mkdir -p out/payload
+          cp gui/BasaPOS-Setup.exe out/BasaPOS-Setup.exe
+          cp dl/BasaPOS-Downloader.exe out/BasaPOS-Downloader.exe
+          cp keeper/BasaPOS.Keeper.exe out/payload/
+          cp payload/basapos.ico out/payload/
+          cp parts/basapos-distro.tar.part-* parts/SHA256SUMS out/payload/
+          # installer verifies keeper files against these entries (Prereqs.AssertPayloadHashes)
+          (cd out/payload && sha256sum BasaPOS.Keeper.exe basapos.ico >> SHA256SUMS)
+          curl -fsSL -o out/payload/wsl.msi \
+            https://github.com/microsoft/WSL/releases/download/2.7.11/wsl.2.7.11.0.x64.msi
       - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
