@@ -104,6 +104,12 @@ wait_healthy() {
 }
 
 show_tails() {
+  # firstboot tee_log's the full command output (docker load, compose up, bench)
+  # into WINLOG = /mnt/c/BasaPOS/logs/firstboot.log — host-visible at $MNT. This
+  # is the AUTHORITATIVE sink; the in-VM $LOG tail can be empty/raced.
+  echo "--- host-side firstboot.log tail (tee_log sink) ---" >&2
+  tail -120 "$MNT/BasaPOS/logs/firstboot.log" >&2 2>/dev/null \
+    || echo "  (not visible — WINLOG was never written)" >&2
   echo "--- in-VM firstboot log tail ---" >&2
   docker exec "$CONTAINER" tail -80 "$LOG" 2>/dev/null >&2 || true
   echo "--- systemd journal tail ---" >&2
@@ -111,6 +117,10 @@ show_tails() {
   echo "--- host curl probe ---" >&2
   curl -sk --resolve "$DOMAIN:$HTTPS_PORT:127.0.0.1" -w "HTTP %{http_code}\n" \
     -o /dev/null "https://$DOMAIN:$HTTPS_PORT/api/method/ping" >&2 || true
+  echo "--- docker ps -a (inner) ---" >&2
+  docker exec "$CONTAINER" docker ps -a --format 'table {{.Names}}\t{{.Status}}' 2>/dev/null >&2 || true
+  echo "--- inner docker info (storage) ---" >&2
+  docker exec "$CONTAINER" docker info --format '{{json .Driver}}' 2>/dev/null >&2 || true
 }
 
 # run_smoke <storage-driver|""> → 0 pass, 1 fail (failures emit details)
@@ -132,16 +142,19 @@ run_smoke() {
 }
 
 # overlay2 default first. Retry with inner vfs ONLY when the failure looks like
-# a layer-unpack (whiteout) signature — any other failure is a real bug and must
-# fail the job fast rather than burn a second ~7min attempt.
+# a layer-unpack (whiteout) failure OR the stack phase failing to start — the
+# known nested-overlay failure modes (commit 9fb7204: nested overlayfs cannot
+# unpack whiteouts). The "[3] tier start failed" journal line is how the
+# swallowed docker compose error surfaces. Any other failure is a real bug and
+# must fail the job fast rather than burn a second ~7min attempt.
 SMOKE_DIAG="$MNT/smoke-diag.txt"
 if ! run_smoke >"$SMOKE_DIAG" 2>&1; then
-  if grep -Eq 'whiteout|failed to apply layer|failed to register layer' "$SMOKE_DIAG"; then
-    echo "== overlay2 failed on a layer-unpack signature — retrying with inner vfs =="
+  if grep -Eq 'whiteout|failed to apply layer|failed to register layer|tier start failed' "$SMOKE_DIAG"; then
+    echo "== overlay2 failed (layer-unpack or tier-start signature) — retrying with inner vfs =="
     rm -f "$SMOKE_DIAG"
     run_smoke vfs
   else
     cat "$SMOKE_DIAG" >&2
-    fail "overlay2 smoke failed without a layer-unpack signature (see above)"
+    fail "overlay2 smoke failed without a layer-unpack/tier-start signature (see above)"
   fi
 fi
