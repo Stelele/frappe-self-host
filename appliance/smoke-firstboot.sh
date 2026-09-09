@@ -37,9 +37,11 @@ MAX_RESUME="${SMOKE_MAX_RESUME:-420}" # resume → done sentinel
 
 MNT="$(mktemp -d)"
 trap 'docker rm -f "$CONTAINER" >/dev/null 2>&1 || true; rm -rf "$MNT"' EXIT
-mkdir -p "$MNT/config" "$MNT/logs" "$MNT/backups"
-printf 'InstallPassword123!' > "$MNT/config/install-password.txt"
-: > "$MNT/config/credentials.txt"
+# the container sees this dir at /mnt/c, so == the C: root of a field box:
+# /mnt/c/BasaPOS/config|logs|backups
+mkdir -p "$MNT/BasaPOS/config" "$MNT/BasaPOS/logs" "$MNT/BasaPOS/backups"
+printf 'InstallPassword123!' > "$MNT/BasaPOS/config/install-password.txt"
+: > "$MNT/BasaPOS/config/credentials.txt"
 
 fail() { echo "SMOKE FAIL: $*" >&2; exit 1; }
 

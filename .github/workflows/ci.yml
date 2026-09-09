@@ -152,8 +152,9 @@ jobs:
         env:
           GHCR: ghcr.io/stelele/frappe-self-host/basapos-distro
           DISTRO_TAG: sha256-${{ steps.hash.outputs.DISTRO_SHA }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          oras login ghcr.io --username "$GITHUB_ACTOR" --password "$GITHUB_TOKEN"
+          oras login ghcr.io --username "$GITHUB_ACTOR" --password "$GH_TOKEN"
           oras push "$GHCR:$DISTRO_TAG" \
             --artifact-type application/vnd.frappe.distro.tarball-gz \
             appliance/dist/basapos-distro.tar.gz.tmp:application/gzip
@@ -182,53 +183,54 @@ jobs:
         with: { name: basapos-downloader, path: dl }
       - uses: actions/download-artifact@v4
         with: { name: basapos-keeper, path: keeper }
-      - name: Pull cached distro (main-green)
-        id: pull-ghcr
+      - name: Pull cached distro (main-green) or bootstrap from this run
         shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          oras login ghcr.io --username "$env:GITHUB_ACTOR" --password "$env:GITHUB_TOKEN"
+          oras login ghcr.io --username "$env:GITHUB_ACTOR" --password "$env:GH_TOKEN"
           oras pull ghcr.io/stelele/frappe-self-host/basapos-distro:main-green
-          if ($LASTEXITCODE -ne 0) { exit 1 }
-          $p = Get-ChildItem -File | Where-Object { $_.Name -match 'basapos-distro.*\.gz|basapos-distro\.tar\.gz\.tmp|application_gzip' } | Select-Object -First 1
-          if (-not $p) { Write-Error "oras pull produced an unexpected file name"; Get-ChildItem -File; exit 1 }
-          Move-Item -Force $p.FullName distro.tar.gz
-      - name: Fall back to this run's distro artifact (bootstrap)
-        if: steps.pull-ghcr.outcome == 'failure'
-        shell: pwsh
-        run: |
-          $gh = "https://api.github.com/repos/stelele/frappe-self-host"
-          $id = $null
-          for ($i = 0; $i -lt 90 -and -not $id; $i++) {
-            $id = & gh api "$gh/actions/runs/$env:GITHUB_RUN_ID/artifacts" `
-              --jq -r '.artifacts[] | select(.name=="basapos-distro") | .id' 2>$null |
-              Select-Object -First 1
-            if (-not $id) { Start-Sleep -Seconds 10 }
-          }
-          if (-not $id) { Write-Error "bootstrap: this run produced no distro artifact"; exit 1 }
-          New-Item -ItemType Directory -Path tmp-distro | Out-Null
-          & gh api "$gh/actions/artifacts/$id/zip" -o tmp-distro/distro.zip
-          Expand-Archive tmp-distro/distro.zip -DestinationPath tmp-distro/unz
-          $expect = @{}
-          Get-Content tmp-distro/unz/SHA256SUMS | ForEach-Object {
-            if ($_ -match '^([0-9a-f]{64})\s{2}(.+)$') { $expect[$matches[2]] = $matches[1] }
-          }
-          $parts = Get-ChildItem tmp-distro/unz/basapos-distro.tar.part-* | Sort-Object Name
-          foreach ($p in $parts) {
-            $h = (Get-FileHash -Algorithm SHA256 $p.FullName).Hash.ToLowerInvariant()
-            if ($expect[$p.Name] -ne $h) { Write-Error "SHA256SUMS mismatch: $($p.Name)"; exit 1 }
-          }
-          $dst = [IO.File]::Create("distro.tar.gz")
-          try {
-            foreach ($p in $parts) {
-              $bytes = [IO.File]::ReadAllBytes($p.FullName)
-              $dst.Write($bytes, 0, $bytes.Length)
+          if ($LASTEXITCODE -eq 0) {
+            $p = Get-ChildItem -File | Where-Object { $_.Name -match 'basapos-distro|application_gzip' } | Select-Object -First 1
+            if (-not $p) { Write-Error "unexpected oras pull artifact name"; Get-ChildItem -File; exit 1 }
+            Move-Item -Force $p.FullName distro.tar.gz
+            Write-Host "distro.tar.gz from GHCR :main-green"
+          } else {
+            Write-Host "bootstrap: :main-green not cached yet - using this run's distro artifact"
+            $gh = "https://api.github.com/repos/stelele/frappe-self-host"
+            $id = $null
+            for ($i = 0; $i -lt 120 -and -not $id; $i++) {
+              $id = & gh api "$gh/actions/runs/$env:GITHUB_RUN_ID/artifacts" `
+                --jq -r '.artifacts[] | select(.name=="basapos-distro") | .id' 2>$null |
+                Select-Object -First 1
+              if (-not $id) { Start-Sleep -Seconds 10 }
             }
-          } finally { $dst.Close() }
-          if ($expect['basapos-distro.tar.gz.tmp'] -and
-              (Get-FileHash -Algorithm SHA256 distro.tar.gz).Hash.ToLowerInvariant() -ne $expect['basapos-distro.tar.gz.tmp']) {
-            Write-Error "reassembled tarball hash mismatch"; exit 1
+            if (-not $id) { Write-Error "bootstrap: this run produced no distro artifact"; exit 1 }
+            New-Item -ItemType Directory -Path tmp-distro | Out-Null
+            & gh api "$gh/actions/artifacts/$id/zip" -o tmp-distro/distro.zip
+            Expand-Archive tmp-distro/distro.zip -DestinationPath tmp-distro/unz
+            $expect = @{}
+            Get-Content tmp-distro/unz/SHA256SUMS | ForEach-Object {
+              if ($_ -match '^([0-9a-f]{64})\s{2}(.+)$') { $expect[$matches[2]] = $matches[1] }
+            }
+            $parts = Get-ChildItem tmp-distro/unz/basapos-distro.tar.part-* | Sort-Object Name
+            foreach ($p in $parts) {
+              $h = (Get-FileHash -Algorithm SHA256 $p.FullName).Hash.ToLowerInvariant()
+              if ($expect[$p.Name] -ne $h) { Write-Error "SHA256SUMS mismatch: $($p.Name)"; exit 1 }
+            }
+            $dst = [IO.File]::Create("distro.tar.gz")
+            try {
+              foreach ($p in $parts) {
+                $bytes = [IO.File]::ReadAllBytes($p.FullName)
+                $dst.Write($bytes, 0, $bytes.Length)
+              }
+            } finally { $dst.Close() }
+            if ($expect['basapos-distro.tar.gz.tmp'] -and
+                (Get-FileHash -Algorithm SHA256 distro.tar.gz).Hash.ToLowerInvariant() -ne $expect['basapos-distro.tar.gz.tmp']) {
+              Write-Error "reassembled tarball hash mismatch"; exit 1
+            }
+            Write-Host "bootstrap fallback OK: distro.tar.gz from this run's artifact"
           }
-          Write-Host "bootstrap fallback OK: distro.tar.gz from this run's artifact"
       - name: Assemble payload
         shell: pwsh
         run: |
