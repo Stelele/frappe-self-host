@@ -34,7 +34,9 @@ DONE="$FIELD/done"
 LOG=/var/log/basapos-firstboot.log
 # arbitrary, but MUST be < the distro job timeout and > worst-case cold firstboot
 MAX_FIRST="${SMOKE_MAX_FIRST:-420}"   # boot → stack sentinel marked
-MAX_RESUME="${SMOKE_MAX_RESUME:-420}" # resume → done sentinel
+MAX_RESUME="${SMOKE_MAX_RESUME:-1500}" # resume → done sentinel (new-site +
+  # full idempotent app install re-runs after a kill-landed-in-phase-4-pow-cut;
+  # vfs layer copies make this the longest smoke segment)
 
 MNT="$(mktemp -d)"
 trap 'docker rm -f "$CONTAINER" >/dev/null 2>&1 || true; rm -rf "$MNT"' EXIT
@@ -79,8 +81,15 @@ wait_stack() { # wait until the stack sentinel is marked (db provisioned +
 
 wait_done() {
   local deadline=$(( $(date +%s) + MAX_RESUME ))
+  local n=0
   while [ "$(date +%s)" -lt "$deadline" ]; do
     docker exec "$CONTAINER" test -f "$DONE" >/dev/null 2>&1 && return 0
+    n=$((n+1))
+    # heartbeat: surface progress (or a hang) in the runner log while waiting
+    if [ $((n % 15)) -eq 0 ]; then
+      echo "  still waiting for done ($(( $(date +%s) - deadline + MAX_RESUME ))s elapsed)" >&2
+      tail -4 "$MNT/BasaPOS/logs/firstboot.log" >&2 2>/dev/null || true
+    fi
     sleep 5
   done
   return 1
