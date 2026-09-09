@@ -171,7 +171,9 @@ jobs:
   windows-drill:
     needs: [lint, gui]
     runs-on: windows-latest
-    timeout-minutes: 30
+    # cache-miss bootstrap: on PRs the distro job (up to ~22m) publishes NO ghcr
+    # cache, so this lane waits for that run's artifact, then assembles + drills.
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - name: Install oras
@@ -202,11 +204,11 @@ jobs:
             Write-Host "bootstrap: :main-green not cached yet - using this run's distro artifact"
             $gh = "https://api.github.com/repos/stelele/frappe-self-host"
             $id = $null
-            for ($i = 0; $i -lt 120 -and -not $id; $i++) {
+            for ($i = 0; $i -lt 240 -and -not $id; $i++) {
               $id = & gh api "$gh/actions/runs/$env:GITHUB_RUN_ID/artifacts" `
                 --jq -r '.artifacts[] | select(.name=="basapos-distro") | .id' 2>$null |
                 Select-Object -First 1
-              if (-not $id) { Start-Sleep -Seconds 10 }
+              if (-not $id) { Start-Sleep -Seconds 5 }
             }
             if (-not $id) { Write-Error "bootstrap: this run produced no distro artifact"; exit 1 }
             New-Item -ItemType Directory -Path tmp-distro | Out-Null
