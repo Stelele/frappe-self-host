@@ -133,7 +133,18 @@ jobs:
           df -h /
       - name: Install pigz
         if: steps.cache-check.outputs.cache-hit != 'true'
-        run: sudo apt-get update && sudo apt-get install -y pigz
+        run: |
+          # no apt-get update! on hosted ubuntu that also refreshes the image's
+          # google-chrome repo, which flakily serves a Hash-Sum-mismatched
+          # Packages index (dl.google.com CDN) and kills the whole job. The
+          # image's apt lists are pre-baked, so install resolves from cache.
+          for i in 1 2 3; do
+            if sudo apt-get install -y pigz; then exit 0; fi
+            echo "pigz install flake (attempt $i/3) — retrying in 15s"
+            sleep 15
+          done
+          # pigz optional: build.sh silently falls back to gzip -6
+          echo "pigz unavailable — proceeding with single-threaded gzip"
       - name: Build + validate + split
         if: steps.cache-check.outputs.cache-hit != 'true'
         run: bash appliance/build.sh
