@@ -219,7 +219,12 @@ jobs:
             }
             if (-not $id) { Write-Error "bootstrap: this run produced no distro artifact"; exit 1 }
             New-Item -ItemType Directory -Path tmp-distro | Out-Null
-            & gh api "$gh/actions/artifacts/$id/zip" -o tmp-distro/distro.zip
+            # gh api has NO -o flag and pwsh > corrupts binary; use curl.exe for
+            # the (redirecting, SAS-signed) artifact blob
+            curl.exe -sSL -H "Authorization: Bearer $env:GH_TOKEN" -o tmp-distro/distro.zip "$gh/actions/artifacts/$id/zip"
+            if ($LASTEXITCODE -ne 0 -or -not (Test-Path tmp-distro/distro.zip)) {
+              Write-Error "artifact zip download failed (curl rc=$LASTEXITCODE)"; exit 1
+            }
             Expand-Archive tmp-distro/distro.zip -DestinationPath tmp-distro/unz
             $expect = @{}
             Get-Content tmp-distro/unz/SHA256SUMS | ForEach-Object {
@@ -233,8 +238,8 @@ jobs:
             $dst = [IO.File]::Create("distro.tar.gz")
             try {
               foreach ($p in $parts) {
-                $bytes = [IO.File]::ReadAllBytes($p.FullName)
-                $dst.Write($bytes, 0, $bytes.Length)
+                $in = [IO.File]::OpenRead($p.FullName)
+                try { $in.CopyTo($dst) } finally { $in.Dispose() }
               }
             } finally { $dst.Close() }
             if ($expect['basapos-distro.tar.gz.tmp'] -and
