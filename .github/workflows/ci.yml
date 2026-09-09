@@ -163,7 +163,8 @@ jobs:
           if [ -z "$f" ]; then
             echo "cache pull produced no tarball"; ls -la; exit 1
           fi
-          if [ "$f" != "appliance/dist/basapos-distro.tar.gz.tmp" ]; then
+          src=${f#./}
+          if [ "$src" != "appliance/dist/basapos-distro.tar.gz.tmp" ]; then
             mv "$f" appliance/dist/basapos-distro.tar.gz.tmp
           fi
           bash appliance/validate.sh appliance/dist/basapos-distro.tar.gz.tmp
