@@ -106,3 +106,11 @@ frappe-deploy/
 └── .github/workflows/
 ```
 
+## CI
+
+CI runs two lanes in parallel: `distro` builds/validates the offline distro tarball
+and a `windows-drill` lane runs the real Windows installer end-to-end
+(assemble payload → install → uninstall) against a shared GHCR-distro cache
+(`:main-green`). Cache hits skip the build and pull from GHCR, keeping steady-state
+runs under 10 minutes; PRs never mutate the cache.
+
