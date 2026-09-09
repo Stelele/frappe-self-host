@@ -3,17 +3,19 @@
 set -euo pipefail
 TAR="${1:?usage: validate.sh <distro.tar.gz>}"
 
-echo "== list + extract shipped metadata (single gunzip pass) =="
+echo "== decompress + list + extract shipped metadata (one gunzip pass) =="
 TMPV="$(mktemp -d)"
 trap 'rm -rf "$TMPV"' EXIT
-# One decompression serves both consumers: the member listing and the 3-file
-# extraction (previously two full passes over the ~1.2GB tarball).
-gzip -dc "$TAR" \
-  | tee >(tar -tf - > "$TMPV/list") \
-  | tar -xf - -C "$TMPV" \
-      opt/basapos/image-digest.txt opt/basapos/compose-parity.yaml opt/basapos/compose/compose.final.yaml
-[ -s "$TMPV/list" ] || { echo "VALIDATE FAIL: member listing empty"; exit 1; }
-LIST="$(cat "$TMPV/list")"
+# Decompress once to a file, then run tar list + tar extract against it.
+# (A tee'd process substitution races: the listing consumer can lag behind
+# the extract consumer and yield an empty/partial member list under load.)
+gzip -dc "$TAR" > "$TMPV/distro.tar"
+LIST="$(tar -tf "$TMPV/distro.tar")"
+[ -n "$LIST" ] || { echo "VALIDATE FAIL: member listing empty"; exit 1; }
+tar -xf "$TMPV/distro.tar" -C "$TMPV" \
+    opt/basapos/image-digest.txt opt/basapos/compose-parity.yaml opt/basapos/compose/compose.final.yaml
+[ -s "$TMPV/opt/basapos/image-digest.txt" ] \
+  || { echo "VALIDATE FAIL: extraction produced nothing"; exit 1; }
 
 # docker export lists members WITHOUT a leading "/" (e.g. etc/wsl.conf),
 # so normalize each required path by stripping its leading slash before match.

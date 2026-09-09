@@ -88,9 +88,9 @@ wait_done() {
 
 healthy() {
   local code
-  code=$(curl -sk --resolve "$DOMAIN:443:127.0.0.1" \
+  code=$(curl -sk --resolve "$DOMAIN:$HTTPS_PORT:127.0.0.1" \
     -o /dev/null -w '%{http_code}' \
-    "https://127.0.0.1:$HTTPS_PORT/api/method/ping" 2>/dev/null || true)
+    "https://$DOMAIN:$HTTPS_PORT/api/method/ping" 2>/dev/null || true)
   [ "$code" = "200" ]
 }
 
@@ -109,8 +109,8 @@ show_tails() {
   echo "--- systemd journal tail ---" >&2
   docker exec "$CONTAINER" journalctl -u basapos-firstboot --no-pager 2>/dev/null | tail -30 >&2 || true
   echo "--- host curl probe ---" >&2
-  curl -sk --resolve "$DOMAIN:443:127.0.0.1" -w "HTTP %{http_code}\n" \
-    -o /dev/null "https://127.0.0.1:$HTTPS_PORT/api/method/ping" >&2 || true
+  curl -sk --resolve "$DOMAIN:$HTTPS_PORT:127.0.0.1" -w "HTTP %{http_code}\n" \
+    -o /dev/null "https://$DOMAIN:$HTTPS_PORT/api/method/ping" >&2 || true
 }
 
 # run_smoke <storage-driver|""> → 0 pass, 1 fail (failures emit details)
@@ -131,9 +131,17 @@ run_smoke() {
   return 0
 }
 
-# overlay2 default first; whiteout failures auto-fall back to inner vfs.
-if run_smoke; then
-  exit 0
+# overlay2 default first. Retry with inner vfs ONLY when the failure looks like
+# a layer-unpack (whiteout) signature — any other failure is a real bug and must
+# fail the job fast rather than burn a second ~7min attempt.
+SMOKE_DIAG="$MNT/smoke-diag.txt"
+if ! run_smoke >"$SMOKE_DIAG" 2>&1; then
+  if grep -Eq 'whiteout|failed to apply layer|failed to register layer' "$SMOKE_DIAG"; then
+    echo "== overlay2 failed on a layer-unpack signature — retrying with inner vfs =="
+    rm -f "$SMOKE_DIAG"
+    run_smoke vfs
+  else
+    cat "$SMOKE_DIAG" >&2
+    fail "overlay2 smoke failed without a layer-unpack signature (see above)"
+  fi
 fi
-echo "== retrying with inner vfs storage driver (whiteout workaround) =="
-run_smoke vfs

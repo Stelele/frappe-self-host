@@ -79,7 +79,8 @@ rm -rf appliance/.payload
 echo "== 5/6 export + gzip =="
 CID=$(docker create "$DISTRO_TAG")
 # pigz (parallel gzip) — install it in the runner's prep step when available;
-# fall back to gzip -6 single-threaded otherwise. Same bytes, ~4x faster.
+# fall back to gzip -6 single-threaded otherwise. Identical decompressed
+# contents (compressed bytes differ), ~4x faster.
 if command -v pigz >/dev/null 2>&1; then
   docker export "$CID" | pigz -6 > "$OUT_DIR/basapos-distro.tar.gz.tmp"
 else

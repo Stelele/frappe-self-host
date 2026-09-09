@@ -16,10 +16,16 @@ cd "$ROOT"
 
 inputs=(apps.json .env.example appliance scripts/gen-compose.sh overrides)
 
+# submodule pin is part of the hash even though ls-files only lists the dir;
+# fail loudly if the gitlink is missing so it can't silently drop out of the key
+sub="$(git ls-tree HEAD frappe_docker --format='%(objectname)')"
+[ -n "$sub" ] || { echo "distro-hash: frappe_docker submodule pin not found" >&2; exit 1; }
+
 {
   printf 'distro-hash-v1\n'
-  # tracked files only (ignores shop/build noise); canonical byte hashes
-  git ls-files -z -- "${inputs[@]}" | sort -z | xargs -0 -I{} sha256sum "{}"
-  # submodule pin is part of the hash even though ls-files only lists the dir
-  git ls-tree HEAD frappe_docker --format='%(objectname)'
+  # tracked files only (ignores shop/build noise); canonical byte hashes.
+  # LC_ALL=C pins sort collation so the ordering (and thus the digest) is
+  # identical on any runner locale.
+  git ls-files -z -- "${inputs[@]}" | LC_ALL=C sort -z | xargs -0 sha256sum
+  printf '%s\n' "$sub"
 } | sha256sum | cut -d' ' -f1

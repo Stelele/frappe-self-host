@@ -141,8 +141,11 @@ jobs:
         run: |
           mkdir -p appliance/dist
           oras pull "ghcr.io/stelele/frappe-self-host/basapos-distro:sha256-${{ steps.hash.outputs.DISTRO_SHA }}"
-          f=$(ls basapos-distro.tar.gz.tmp 2>/dev/null || ls *.gz 2>/dev/null | head -1)
-          [ -n "$f" ] && mv "$f" appliance/dist/basapos-distro.tar.gz.tmp
+          f=$(find . -maxdepth 1 -type f \( -name 'basapos-distro.tar.gz.tmp' -o -name '*.gz' \) | head -1)
+          if [ -z "$f" ]; then
+            echo "cache pull produced no tarball"; ls -la; exit 1
+          fi
+          mv "$f" appliance/dist/basapos-distro.tar.gz.tmp
           bash appliance/validate.sh appliance/dist/basapos-distro.tar.gz.tmp
           (cd appliance/dist \
             && split -b 1900m -d basapos-distro.tar.gz.tmp basapos-distro.tar.part- \
@@ -176,7 +179,7 @@ jobs:
         run: |
           Invoke-WebRequest -Uri https://github.com/oras-project/oras/releases/download/v1.2.2/oras_1.2.2_windows_amd64.zip -OutFile oras.zip
           Expand-Archive oras.zip -DestinationPath oras-dir
-          Add-Content -Path $env:GITHUB_ENV -Value "PATH=$env:PATH;$pwd\oras-dir" -Encoding ascii
+          Add-Content -Path $env:GITHUB_PATH -Value "$pwd\oras-dir" -Encoding ascii
       - uses: actions/download-artifact@v4
         with: { name: basapos-setup-gui, path: gui }
       - uses: actions/download-artifact@v4
