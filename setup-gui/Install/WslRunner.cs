@@ -8,17 +8,20 @@ public sealed record ProcResult(int ExitCode, string Output, string Error);
 /// Hardened external-process wrapper. v2 lessons baked in:
 /// - per-call timeouts (wsl.exe can hang forever without one)
 /// - CreateNoWindow (no console flashes)
-/// - wsl.exe emits UTF-16; other tools emit console codepage → two entry points
+/// - Run() forces WSL_UTF8=1 so wsl.exe emits UTF-8, regardless of any
+///   inherited env (the drill sets WSL_UTF8=1; older wsl.exe builds emit
+///   UTF-16 without it — decoding is now deterministic). Other tools emit
+///   console codepage → RunAnsi stays the ANSI entry point.
 /// - stdout/stderr drained via ReadToEndAsync BEFORE WaitForExit (deadlock-safe)
 public static class WslRunner
 {
     public static ProcResult Run(string fileName, string arguments, int timeoutSeconds = 600,
         Action<string>? onLine = null)
-        => RunCore(fileName, arguments, timeoutSeconds, Encoding.Unicode, onLine);
+        => RunCore(fileName, arguments, timeoutSeconds, Encoding.UTF8, wslUtf8: true, onLine);
 
     public static ProcResult RunAnsi(string fileName, string arguments, int timeoutSeconds = 600,
         Action<string>? onLine = null)
-        => RunCore(fileName, arguments, timeoutSeconds, Console.OutputEncoding, onLine);
+        => RunCore(fileName, arguments, timeoutSeconds, Console.OutputEncoding, wslUtf8: false, onLine);
 
     public static ProcResult Wsl(string arguments, int timeoutSeconds = 600,
         Action<string>? onLine = null)
@@ -41,12 +44,12 @@ public static class WslRunner
 
     internal static IReadOnlyList<string> ParseDistroList(string output) =>
         output.Split('\n')
-            .Select(l => l.Trim().TrimEnd('\r'))
+            .Select(l => l.Trim().Trim('\uFEFF').TrimEnd('\r'))
             .Where(l => l.Length > 0)
             .ToList();
 
     static ProcResult RunCore(string fileName, string arguments, int timeoutSeconds,
-        Encoding outputEncoding, Action<string>? onLine)
+        Encoding outputEncoding, bool wslUtf8, Action<string>? onLine)
     {
         var psi = new ProcessStartInfo
         {
@@ -59,6 +62,8 @@ public static class WslRunner
             StandardOutputEncoding = outputEncoding,
             StandardErrorEncoding = outputEncoding,
         };
+        if (wslUtf8)
+            psi.Environment["WSL_UTF8"] = "1";
         using var p = Process.Start(psi)
             ?? throw new InvalidOperationException($"failed to start {fileName}");
         var outTask = p.StandardOutput.ReadToEndAsync();

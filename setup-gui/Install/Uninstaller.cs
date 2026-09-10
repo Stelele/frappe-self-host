@@ -1,4 +1,9 @@
+using System.Diagnostics;
+
 namespace BasaPOS.Setup.Install;
+
+/// Single unregister result: Ok + diagnostics text for the ladder report.
+internal sealed record UnregisterAttempt(bool Ok, string Error);
 
 public sealed class Uninstaller(ISetupUi ui)
 {
@@ -90,60 +95,165 @@ public sealed class Uninstaller(ISetupUi ui)
         ui.Status("Removed legacy v2 install dir.");
     }
 
-    /// Unregisters BasaPOS plus any name-variant (e.g. partial states), with
-    /// shutdown-retry. Strict: throws if BasaPOS itself survives.
+    /// Unregisters BasaPOS plus any name-variant (e.g. partial states).
+    /// Ladder: elevated wsl --unregister → unelevated (LIMITED task) → raw
+    /// Lxss registration-key removal. Strict: throws if BasaPOS survives.
     void UnregisterBasaPOS()
     {
         var targets = WslRunner.ListDistros()
-            .Where(d => d.Equals(Paths.DistroName, StringComparison.OrdinalIgnoreCase)
-                     || d.Contains("basapos", StringComparison.OrdinalIgnoreCase))
+            .Where(Detect.IsBasaPOSName)
             .ToList();
         if (targets.Count == 0)
-        {
-            // fall back to direct unregister (covers vhdx-present-but-unlisted edge)
-            WslRunner.Wsl($"--unregister {Paths.DistroName}", 300);
-        }
-        else foreach (var name in targets)
-        {
-            if (!name.Equals(Paths.DistroName, StringComparison.OrdinalIgnoreCase))
-                ui.Status($"Removing variant distro: {name}");
-            WslRunner.Wsl($"--unregister \"{name}\"", 300);
-        }
-        if (Detect.IsInstalled())
-        {
-            // real failure (not mere absence): WSL busy or AV lock on ext4.vhdx —
-            // deleting C:\BasaPOS now would half-remove and leave a locked vhdx
-            ui.Status("Unregister incomplete — retrying after wsl --shutdown...");
-            WslRunner.Wsl("--shutdown", 120);
-            WslRunner.Wsl($"--unregister \"{Paths.DistroName}\"", 300);
-        }
-        if (Detect.IsInstalled())
+            targets.Add(Paths.DistroName); // vhdx-present-but-unlisted edge; harmless if absent
+
+        ui.Status("Shutting down WSL and waiting for the VM to release files...");
+        try { WslRunner.Wsl("--shutdown", 60); } catch { /* VM already down */ }
+        WaitForTeardown(ui);
+
+        var errors = RunEscalation(
+            targets,
+            elevated: TryUnregister,
+            unelevated: UnelevatedWsl.Available ? Unelevate : null,
+            listLxss: DistroRegistration.FindLxssKeys,
+            deleteLxss: DistroRegistration.DeleteKey,
+            listRegistered: () => WslRunner.ListDistros().Where(Detect.IsBasaPOSName).ToList(),
+            status: ui.Status);
+
+        if (errors.Length > 0)
+            ui.Status("Unregister notes:\n  " + errors);
+
+        // Belt and braces: an Lxss key can outlive a nominal --unregister.
+        foreach (var key in DistroRegistration.FindLxssKeys().ToList())
+            if (DistroRegistration.DeleteKey(key))
+                ui.Status($"Removed stray WSL registration: {key}");
+
+        if (Detect.IsRegistered() || DistroRegistration.FindLxssKeys().Any())
             throw new InvalidOperationException(
-                "Could not unregister the BasaPOS distro (WSL busy or antivirus lock). " +
-                "Reboot the machine and run Uninstall again.");
+                "Could not unregister the BasaPOS distro.\n" + errors +
+                "\nManual fix: open a NORMAL (non-admin) terminal and run: " +
+                "wsl --unregister BasaPOS, then run Uninstall again.");
     }
 
-    /// Purge mode: unregister EVERY distro (best-effort per distro, strict only
-    /// for BasaPOS which UnregisterBasaPOS already handled). Collect failures
-    /// and report — one stuck foreign distro must not abort the whole purge.
-    void PurgeAllDistros()
+    /// The unregister escalation ladder — pure decision core with injected I/O
+    /// so ordering is unit-testable without a real WSL:
+    ///   1. elevated --unregister per candidate
+    ///   2. if still registered: unelevated --unregister (when offered)
+    ///   3. if still registered: delete remaining Lxss registration keys
+    /// Returns accumulated diagnostics; the caller decides when to throw
+    /// (a fully-removed distro may still carry intermediate error text).
+    internal static string RunEscalation(
+        IReadOnlyList<string> targets,
+        Func<string, UnregisterAttempt> elevated,
+        Func<string, UnregisterAttempt>? unelevated,
+        Func<IReadOnlyList<string>> listLxss,
+        Func<string, bool> deleteLxss,
+        Func<IReadOnlyList<string>> listRegistered,
+        Action<string>? status = null)
     {
-        WslRunner.Wsl("--shutdown", 120);
-        var failures = new List<string>();
-        foreach (var name in WslRunner.ListDistros())
+        var errors = new List<string>();
+        var tried = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var name in targets)
+        {
+            if (!tried.Add(name)) continue;
+            var r = elevated(name);
+            if (r.Ok) { status?.Invoke($"Unregistered distro: {name}"); continue; }
+            errors.Add($"{name}: {r.Error}");
+        }
+        var remaining = listRegistered();
+        if (remaining.Count == 0) return string.Join("\n  ", errors);
+
+        if (unelevated is not null)
+        {
+            status?.Invoke("Still registered — retrying as the normal (non-admin) user...");
+            foreach (var name in remaining)
+            {
+                var r = unelevated(name);
+                if (r.Ok) { status?.Invoke($"Unregistered distro: {name}"); continue; }
+                errors.Add($"{name} (unelevated): {r.Error}");
+            }
+            remaining = listRegistered();
+        }
+
+        if (remaining.Count > 0)
+        {
+            status?.Invoke("Still registered — removing the WSL registration key(s) directly...");
+            // snapshot: deleteLxss may mutate the underlying collection
+            foreach (var key in listLxss().ToList())
+                if (deleteLxss(key)) status?.Invoke($"Removed WSL registration: {key}");
+                else errors.Add($"registry key: {key}: delete failed");
+        }
+
+        return string.Join("\n  ", errors);
+    }
+
+    /// One unregister attempt with the real wsl.exe outcome captured — no
+    /// silent failures: exit codes and stderr feed the ladder and the report.
+    static UnregisterAttempt TryUnregister(string name)
+    {
+        try
+        {
+            var r = WslRunner.Wsl($"--unregister \"{name}\"", 300);
+            if (r.ExitCode == 0)
+                return new UnregisterAttempt(Ok: true, Error: string.Empty);
+            return new UnregisterAttempt(Ok: false,
+                $"wsl --unregister \"{name}\" exited {r.ExitCode}: {r.Error.Trim()} {r.Output.Trim()}".Trim());
+        }
+        catch (Exception ex)
+        {
+            return new UnregisterAttempt(Ok: false, ex.Message);
+        }
+    }
+
+    static UnregisterAttempt Unelevate(string name)
+    {
+        var (ok, error) = UnelevatedWsl.TryUnregister(name);
+        return new UnregisterAttempt(ok, error);
+    }
+
+    /// wsl --shutdown returns while the VM is still dying; an immediate
+    /// --unregister can then hit a locked ext4.vhdx. Wait until nobody holds
+    /// the file (bounded) so unregister has the best odds. No vhdx = nothing
+    /// to wait for.
+    static void WaitForTeardown(ISetupUi ui, int maxSeconds = 30)
+    {
+        var vhdx = Path.Combine(Paths.DistroDir, "ext4.vhdx");
+        if (!File.Exists(vhdx)) return;
+        var sw = Stopwatch.StartNew();
+        while (sw.Elapsed.TotalSeconds < maxSeconds)
         {
             try
             {
-                WslRunner.Wsl($"--unregister \"{name}\"", 300);
-                ui.Status($"Purged distro: {name}");
+                using (new FileStream(vhdx, FileMode.Open, FileAccess.ReadWrite, FileShare.None)) { }
+                return; // VM released the file
             }
-            catch (Exception ex)
-            {
-                failures.Add($"{name} ({ex.Message})");
-            }
+            catch { Thread.Sleep(1000); } // still locked — VM tearing down / AV scanning
         }
-        // re-check BasaPOS specifically (strict); others are best-effort
-        if (Detect.IsInstalled())
+        ui.Status("WSL VM still holding ext4.vhdx after 30s — proceeding anyway.");
+    }
+
+    /// Purge mode: unregister EVERY distro (best-effort per distro, strict only
+    /// for BasaPOS which UnregisterBasaPOS already handled). Real wsl.exe
+    /// errors are captured per distro and reported — one stuck foreign distro
+    /// must not abort the whole purge.
+    void PurgeAllDistros()
+    {
+        try { WslRunner.Wsl("--shutdown", 120); } catch { }
+        WaitForTeardown(ui);
+        var failures = new List<string>();
+        foreach (var name in WslRunner.ListDistros())
+        {
+            var r = TryUnregister(name);
+            if (r.Ok) ui.Status($"Purged distro: {name}");
+            else failures.Add($"{name} ({r.Error})");
+        }
+        if (Detect.IsRegistered())
+        {
+            ui.Status("BasaPOS still registered after purge — removing its registration key directly...");
+            foreach (var key in DistroRegistration.FindLxssKeys())
+                if (DistroRegistration.DeleteKey(key)) ui.Status($"Removed WSL registration: {key}");
+        }
+        if (Detect.IsRegistered())
             throw new InvalidOperationException(
                 "Purge could not remove the BasaPOS distro. Reboot and run Uninstall again.");
         if (failures.Count > 0)

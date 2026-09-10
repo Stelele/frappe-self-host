@@ -158,6 +158,162 @@ public class InstallComponentsTests
     }
 
     [Fact]
+    public void ParseDistroList_strips_utf8_bom_prefix()
+    {
+        // WSL_UTF8=1 guarantees UTF-8 output, but a U+FEFF can still precede
+        // the first line; it must never leak into a distro name.
+        var d = WslRunner.ParseDistroList("\uFEFFBasaPOS\r\nUbuntu\r\n\r\ndocker-desktop\r\n");
+        Assert.Equal(new[] { "BasaPOS", "Ubuntu", "docker-desktop" }, d);
+    }
+
+    [Fact]
+    public void Detect_IsBasaPOSName_matches_name_and_variants()
+    {
+        Assert.True(Detect.IsBasaPOSName("BasaPOS"));
+        Assert.True(Detect.IsBasaPOSName("basapos"));
+        Assert.True(Detect.IsBasaPOSName("BasaPOS-2"));
+        Assert.True(Detect.IsBasaPOSName("xxxbasaposyyy"));
+        Assert.False(Detect.IsBasaPOSName("Ubuntu"));
+        Assert.False(Detect.IsBasaPOSName(""));
+        Assert.False(Detect.IsBasaPOSName(null));
+    }
+
+    [Fact]
+    public void DistroRegistration_matches_only_basapos_names()
+    {
+        Assert.True(DistroRegistration.Matches("BasaPOS"));
+        Assert.True(DistroRegistration.Matches("basapos-2"));
+        Assert.False(DistroRegistration.Matches("Ubuntu"));
+        Assert.False(DistroRegistration.Matches(""));
+        Assert.False(DistroRegistration.Matches(null));
+    }
+
+    [Fact]
+    public void RunEscalation_elevated_success_skips_later_phases()
+    {
+        var deleted = false;
+        var result = Uninstaller.RunEscalation(
+            targets: new[] { "BasaPOS" },
+            elevated: _ => new UnregisterAttempt(true, ""),
+            unelevated: _ => throw new Xunit.Sdk.XunitException("unelevated must not run on success"),
+            listLxss: () => new[] { "key" },
+            deleteLxss: _ => { deleted = true; return true; },
+            listRegistered: () => Array.Empty<string>());
+        Assert.False(deleted);
+        Assert.Empty(result);
+    }
+
+    [Fact]
+    public void RunEscalation_unelevated_retries_before_registry_delete()
+    {
+        var order = new List<string>();
+        var registered = new List<string> { "BasaPOS" };
+        var result = Uninstaller.RunEscalation(
+            targets: new[] { "BasaPOS" },
+            elevated: name => { order.Add("elevated"); return new UnregisterAttempt(false, "denied"); },
+            unelevated: name => { order.Add("unelevated"); registered.Clear(); return new UnregisterAttempt(true, ""); },
+            listLxss: () => new[] { "key" },
+            deleteLxss: _ => { order.Add("registry"); return true; },
+            listRegistered: () => registered.ToList());
+        Assert.Equal(new[] { "elevated", "unelevated" }, order);
+        // intermediate elevated failure surfaces as a note, not a success blocker
+        Assert.Contains("denied", result);
+    }
+
+    [Fact]
+    public void RunEscalation_skips_unelevated_when_unavailable()
+    {
+        var order = new List<string>();
+        var registered = new List<string> { "BasaPOS" };
+        Uninstaller.RunEscalation(
+            targets: new[] { "BasaPOS" },
+            elevated: _ => { order.Add("elevated"); return new UnregisterAttempt(false, "x"); },
+            unelevated: null,
+            listLxss: () => new[] { "key" },
+            deleteLxss: _ => { order.Add("registry"); registered.Clear(); return true; },
+            listRegistered: () => registered.ToList());
+        Assert.Equal(new[] { "elevated", "registry" }, order);
+    }
+
+    [Fact]
+    public void RunEscalation_falls_back_to_registry_when_both_wsl_paths_fail()
+    {
+        var keys = new List<string> { @"HKCU\Software\Microsoft\Windows\CurrentVersion\Lxss\{1111}" };
+        var registered = new List<string> { "BasaPOS" };
+        string? elevatedRan = null, unelevatedRan = null;
+        var result = Uninstaller.RunEscalation(
+            targets: new[] { "BasaPOS" },
+            elevated: name => { elevatedRan = name; return new UnregisterAttempt(false, "busy"); },
+            unelevated: name => { unelevatedRan = name; return new UnregisterAttempt(false, "still busy"); },
+            listLxss: () => registered.Count > 0 ? keys : Array.Empty<string>(),
+            deleteLxss: key => { keys.Remove(key); registered.Clear(); return true; },
+            listRegistered: () => registered.ToList());
+        Assert.Equal("BasaPOS", elevatedRan);
+        Assert.Equal("BasaPOS", unelevatedRan);
+        Assert.Empty(keys);
+        Assert.Contains("busy", result);      // both wsl errors reported
+        Assert.Contains("still busy", result);
+    }
+
+    [Fact]
+    public void RunEscalation_reports_when_everything_fails()
+    {
+        var registered = new List<string> { "BasaPOS" };
+        var result = Uninstaller.RunEscalation(
+            targets: new[] { "BasaPOS" },
+            elevated: _ => new UnregisterAttempt(false, "elevated busy"),
+            unelevated: _ => new UnregisterAttempt(false, "unelevated busy"),
+            listLxss: () => new[] { @"HKCU\...\Lxss\{X}" },
+            deleteLxss: _ => false,
+            listRegistered: () => registered.ToList());
+        Assert.Contains("BasaPOS: elevated busy", result);
+        Assert.Contains("BasaPOS (unelevated): unelevated busy", result);
+        Assert.Contains("registry key", result);
+        Assert.Contains("delete failed", result);
+    }
+
+    [Fact]
+    public void UnelevatedWsl_buildcmd_redirects_and_stamps_exitcode()
+    {
+        var cmd = UnelevatedWsl.BuildCmd(@"C:\ProgramData\BasaPOS\basapos-unelevated-abc.log",
+            @"C:\Windows\System32\wsl.exe", "--unregister \"BasaPOS\"");
+        Assert.Contains("del \"C:\\ProgramData\\BasaPOS\\basapos-unelevated-abc.log\" 2>nul", cmd); // stale-log guard
+        Assert.Contains("wsl.exe\" --unregister \"BasaPOS\" > \"C:\\ProgramData\\BasaPOS\\basapos-unelevated-abc.log\"", cmd);
+        Assert.Contains("\" 2>&1", cmd); // stderr captured
+        Assert.Contains("echo EXITCODE=%ERRORLEVEL% >> \"", cmd);
+    }
+
+    [Fact]
+    public void UnelevatedWsl_buildrunscript_limited_interactive_oneshot()
+    {
+        var s = UnelevatedWsl.BuildRunScript("ops", @"C:\ProgramData\BasaPOS\basapos-unelevated.cmd", "BasaPOS-Unelevated");
+        Assert.Contains("-RunLevel Limited", s);
+        Assert.Contains("-LogonType Interactive", s);
+        Assert.Contains("Register-ScheduledTask -TaskName 'BasaPOS-Unelevated'", s);
+        Assert.Contains("Start-ScheduledTask -TaskName 'BasaPOS-Unelevated'", s);
+        Assert.Contains(@"C:\ProgramData\BasaPOS\basapos-unelevated.cmd", s);
+    }
+
+    [Fact]
+    public void UnelevatedWsl_buildrunscript_escapes_apostrophes()
+    {
+        var s = UnelevatedWsl.BuildRunScript("o'brien", @"C:\ProgramData\BasaPOS\x'st.cmd", "T'ask");
+        Assert.Contains("o''brien", s);
+        Assert.Contains("x''st.cmd", s);
+        Assert.Contains("T''ask", s);
+        Assert.DoesNotContain("o'brien", s.Replace("o''brien", ""));
+    }
+
+    [Fact]
+    public void UnelevatedWsl_summary_extracts_exitcode_and_output()
+    {
+        Assert.Contains("wsl exited 0", UnelevatedWsl.BuildSummary("All good\nEXITCODE=0", 0));
+        Assert.Contains("All good", UnelevatedWsl.BuildSummary("All good\nEXITCODE=0", 0));
+        // wsl.exe can surface negative (HRESULT-shaped) exit codes
+        Assert.Contains("wsl exited -1978335135", UnelevatedWsl.BuildSummary("WSL busy\nEXITCODE=-1978335135", -1978335135));
+    }
+
+    [Fact]
     public void PasswordGen_excludes_ambiguous_chars()
     {
         var rng = new Random(1);

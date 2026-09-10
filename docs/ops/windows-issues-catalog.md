@@ -61,6 +61,7 @@ fetched an asset URL. Both gaps now have regression checks.
 | WIN-021 | L | Ensure-TrustedCert failure is log-only; install reports success while "Not Secure" persists (drills catch it in CI, not on user machines) | common.ps1 / setup.ps1 | OPEN |
 | WIN-022 | L | Installs made before cert-trust fix leave permanent orphan self-signed certs in LocalMachine\Root (uninstall never removed them) | pre-existing installs | OPEN |
 | WIN-023 | L | Firefox uses its own cert store — shows "Not Secure" regardless of Windows trust import (Edge/Chrome fine); documented in troubleshooting.md | browsers | KNOWN LIMITATION |
+| WIN-024 | H | v3 (setup-gui): elevated `wsl --unregister` fails on-store-WSL against distros registered in the unelevated user session → stray BasaPOS distro survives uninstall (`wsl -l` still lists it, vhdx intact). Fixed: deterministic WSL_UTF8=1 decoding, real wsl.exe exit-code capture, bounded teardown wait, then unelevated retry (LIMITED task) and Lxss registration-key fallback | setup-gui/Install/{WslRunner,DistroRegistration,UnelevatedWsl,Uninstaller}.cs | FIXED |
 
 ## FRP — Frappe appliance & deployment
 
